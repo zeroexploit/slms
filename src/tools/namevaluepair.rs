@@ -60,4 +60,20 @@ impl NameValuePair {
     pub fn get(&self) -> (&str, &str) {
         (&self.name, &self.value)
     }
+    
+    /// Copy the Name Value Pair and create a new one.
+    /// Both Pairs can be used independently.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let other_pair: NameValuePair = NameValuePair::new();
+    /// let pair: NameValuePair = other_pair.copy();
+    /// ```
+    pub fn copy(&self) -> NameValuePair {
+        NameValuePair {
+            name: self.name.clone(),
+            value: self.value.clone(),
+        }
+    }
 }

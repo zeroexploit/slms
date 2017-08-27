@@ -23,6 +23,32 @@ impl XMLEntry {
             sub_tags: Vec::new(),
         }
     }
+    
+    /// Copys this XMLEntry and creates a new one.
+    /// Both Entries can than be used independantly.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let other_xml: XMLEntry = XMLEntry::new();
+    /// let new_xml: XMLEntry = other_xml.copy();
+    /// ```
+    pub fn copy(&self) -> XMLEntry {
+        let mut entry: XMLEntry = XMLEntry::new();
+
+        entry.tag = self.tag.clone();
+        entry.value = self.value.clone();
+
+        for attr in &self.attributes {
+            entry.attributes.push(attr.copy());
+        }
+
+        for sub in &self.sub_tags {
+            entry.sub_tags.push(sub.copy());
+        }
+
+        return entry;
+    }
 }
 
 /// # XMLParser
@@ -367,14 +393,14 @@ impl XMLParser {
     ///
     /// * `tag_list` - List of XMLEntrys to search in
     /// * `name` - Name of the Tag to search for
-    pub fn find_tag(tag_list: Vec<XMLEntry>, name: &str) -> XMLEntry {
+    pub fn find_tag(tag_list: &Vec<XMLEntry>, name: &str) -> XMLEntry {
         let mut entry: XMLEntry = XMLEntry::new();
 
         for tag in tag_list {
             if tag.tag == name {
-                return tag;
+                return tag.copy();
             } else {
-                entry = XMLParser::find_tag(tag.sub_tags, name);
+                entry = XMLParser::find_tag(&tag.sub_tags, name);
 
                 if entry.tag.len() > 0 {
                     return entry;

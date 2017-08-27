@@ -1,6 +1,6 @@
 [package]
 name = "slms"
 version = "0.1.0"
-authors = ["Jörn Roddelkopf"]
+authors = ["JÃ¶rn Roddelkopf"]
 
 [dependencies]
