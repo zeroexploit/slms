@@ -26,6 +26,18 @@ impl MediaType {
             _ => "0".to_string(),
         }
     }
+
+    /// Convert a printable String back to the enumeration.
+    /// Used to load the Information from the
+    /// Media Database.
+    pub fn from_string(content: &str) -> MediaType {
+        match content {
+            "1" => MediaType::AUDIO,
+            "2" => MediaType::PICTURE,
+            "3" => MediaType::VIDEO,
+            _ => MediaType::UNKNOWN,
+        }
+    }
 }
 
 /// # MetaData
@@ -231,7 +243,7 @@ impl Item {
     }
 
     /// Get the List of NameValuePairs representing this Structures Attributes.
-    pub fn get_name_value_pais(&self) -> Vec<NameValuePair> {
+    pub fn get_name_value_pairs(&self) -> Vec<NameValuePair> {
         let pair_vec: Vec<NameValuePair> =
             vec![
                 NameValuePair::new("id", &self.id.to_string()),

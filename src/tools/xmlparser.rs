@@ -23,7 +23,7 @@ impl XMLEntry {
             sub_tags: Vec::new(),
         }
     }
-    
+
     /// Copys this XMLEntry and creates a new one.
     /// Both Entries can than be used independantly.
     ///
@@ -119,6 +119,7 @@ impl XMLEntry {
 pub struct XMLParser {
     pub xml_content: String,
     pub xml_entries: Vec<XMLEntry>,
+    tab_counter: u32,
 }
 
 impl XMLParser {
@@ -127,6 +128,7 @@ impl XMLParser {
         XMLParser {
             xml_content: String::new(),
             xml_entries: Vec::new(),
+            tab_counter: 0,
         }
     }
 
@@ -141,6 +143,7 @@ impl XMLParser {
         let mut parser = XMLParser::new();
         parser.xml_content = content.to_string();
         parser.xml_entries = parser.parse(content);
+        parser.tab_counter = 0;
 
         return parser;
     }
@@ -231,9 +234,7 @@ impl XMLParser {
                 result.sub_tags = self.parse(&content[(end_position + 1)..(tag_end_position + 1)]);
 
                 if result.sub_tags.len() == 0 {
-                    result.value = content[(end_position + 1)..tag_end_position]
-                        .trim()
-                        .to_string();
+                    result.value = content[end_position..tag_end_position].trim().to_string();
                 }
 
                 start_position = tag_end_position + 3 + result.tag.len();
@@ -334,6 +335,15 @@ impl XMLParser {
         self.xml_content = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n".to_string();
     }
 
+    /// This function inserts some Tabs into the actual content.
+    /// Even if this was not required, it makes reading the XML Content more
+    /// user-friendly.
+    fn insert_tab(&mut self) {
+        for _ in 0..self.tab_counter {
+            self.xml_content += "\t";
+        }
+    }
+
     /// Insert the Value to a XML Tag. The Tag needs to be opened before, closed after and shall not
     /// contain any Sub-Tags.
     ///
@@ -341,6 +351,8 @@ impl XMLParser {
     ///
     /// * `value` - The Value that should be added to a Tag -- <>value</>
     pub fn insert_value(&mut self, value: &str) {
+        self.tab_counter += 1;
+        self.insert_tab();
         self.xml_content += value;
         self.xml_content += "\n";
     }
@@ -354,6 +366,8 @@ impl XMLParser {
     /// * `attributes` - List of NameValuePairs to be set as Tag Attributes. -- <.. attr1="val1" attr2="val2" ..>
     /// * `has_content` - Set to true if the Tag will contain any other sub-content. Set to false if not. -- true - <>value</> | false - </>
     pub fn open_tag(&mut self, name: &str, attributes: &Vec<NameValuePair>, has_content: bool) {
+        self.tab_counter += 1;
+        self.insert_tab();
         self.xml_content += "<";
         self.xml_content.push_str(name);
 
@@ -372,6 +386,7 @@ impl XMLParser {
             self.xml_content += ">\n";
         } else {
             self.xml_content += "/>\n";
+            self.tab_counter -= 1;
         }
     }
 
@@ -384,6 +399,10 @@ impl XMLParser {
         self.xml_content += "</";
         self.xml_content += name;
         self.xml_content += ">\n";
+
+        if self.tab_counter > 0 {
+            self.tab_counter -= 1;
+        }
     }
 
     /// Takes a list of XMLEntrys and extracts the one with the given Name.
@@ -409,5 +428,17 @@ impl XMLParser {
         }
 
         return entry;
+    }
+
+    /// This function takes a list of Name-Value Pairs and returns the
+    /// Value of the Pair where the name matches the given one.
+    pub fn get_value_from_name(attr_list: &Vec<NameValuePair>, name: &str) -> String {
+        for attr in attr_list {
+            if attr.name == name {
+                return attr.value.clone();
+            }
+        }
+
+        "".to_string()
     }
 }

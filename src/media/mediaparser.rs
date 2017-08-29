@@ -7,6 +7,8 @@ use media::StreamType;
 use std::fs;
 use std::time;
 
+// TO-DO: Use FFmpeg libarys instead of external Tool -> Can not be compiled right now
+
 /// # MediaParser
 ///
 /// This is an empty Structure providing all functionality
@@ -186,14 +188,26 @@ impl MediaParser {
 
         // Add missing Values
         let metadata = fs::metadata(path);
-        target.last_modified = metadata
-            .unwrap()
-            .modified()
-            .unwrap()
-            .duration_since(time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
+        target.last_modified = match metadata {
+            Ok(some) => {
+                match some.modified() {
+                    Ok(in_some) => {
+                        match in_some.duration_since(time::UNIX_EPOCH) {
+                            Ok(in_in_some) => in_in_some.as_secs(),
+                            Err(_) => {
+                                return false;
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        return false;
+                    }
+                }
+            }
+            Err(_) => {
+                return false;
+            }
+        };
 
         return true;
     }
