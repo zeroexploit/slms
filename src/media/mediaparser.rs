@@ -7,6 +7,8 @@ use media::StreamType;
 use std::fs;
 use std::time;
 
+// TO-DO: Use FFmpeg libarys instead of external Tool -> Can not be compiled right now
+
 /// # MediaParser
 ///
 /// This is an empty Structure providing all functionality

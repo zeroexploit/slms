@@ -16,6 +16,8 @@ use std::path::Path;
 use std::fs;
 use std::time;
 
+// TO-DO: Add Media Container Formats once FFMpeg can be compiled
+
 /// # DatabaseManager
 ///
 /// This structure is one of the main parts of slms.
