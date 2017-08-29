@@ -37,6 +37,18 @@ impl StreamType {
             _ => "0".to_string(),
         }
     }
+
+    /// Convert Strings back to the enumeration Type.
+    /// This is used to parse the XML Data back
+    pub fn from_string(content: &str) -> StreamType {
+        match content {
+            "1" => StreamType::AUDIO,
+            "2" => StreamType::VIDEO,
+            "3" => StreamType::IMAGE,
+            "4" => StreamType::SUBTITLE,
+            _ => StreamType::UNKNOWN,
+        }
+    }
 }
 
 /// # Stream

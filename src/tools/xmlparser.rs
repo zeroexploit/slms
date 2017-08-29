@@ -23,7 +23,7 @@ impl XMLEntry {
             sub_tags: Vec::new(),
         }
     }
-    
+
     /// Copys this XMLEntry and creates a new one.
     /// Both Entries can than be used independantly.
     ///
@@ -409,5 +409,15 @@ impl XMLParser {
         }
 
         return entry;
+    }
+
+    pub fn get_value_from_name(attr_list: &Vec<NameValuePair>, name: &str) -> String {
+        for attr in attr_list {
+            if attr.name == name {
+                return attr.value.clone();
+            }
+        }
+
+        "".to_string()
     }
 }
