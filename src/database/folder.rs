@@ -43,4 +43,17 @@ impl Folder {
 
         np_list
     }
+
+    /// This will create a clone of the Folder Structure
+    /// that can be handled indepentandly.
+    pub fn clone(&self) -> Folder {
+        Folder {
+            id: self.id,
+            parent_id: self.parent_id,
+            title: self.title.clone(),
+            path: self.path.clone(),
+            element_count: self.element_count,
+            last_modified: self.last_modified,
+        }
+    }
 }
