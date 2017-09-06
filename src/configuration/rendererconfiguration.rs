@@ -5,8 +5,8 @@
 /// is related to the seconde one the target. Can be used
 /// whenever it is needed.
 pub struct SourceTargetMap {
-    source: String,
-    target: String,
+    pub source: String,
+    pub target: String,
 }
 
 impl SourceTargetMap {
@@ -26,23 +26,23 @@ impl SourceTargetMap {
 /// device can be configured individually, here are most of the
 /// relevant settings located.
 pub struct RendererConfiguration {
-    display_name: String, // Name of the Renderer as it appears in Logs
-    user_agent_search: String, // Text in "User-Agent" Header to search for and identifiy a Device
-    remote_ip: String, // Ip to identify a Device by
-    file_extensions: Vec<String>, // List of supported File Extensions by the Device
-    container_maps: Vec<SourceTargetMap>, // List of what unsupported Container should be mapped to what kind of supported one
-    transcode_container: String, // Default Container for transcoded elements
-    audio_channels: u8, // Number of Audio Channels the device supports
-    transcode_enabled: bool, // Enable Transcoding Engine in general?
-    transcode_audio_enabled: bool, // Enable transcoding of Audio Streams?
-    transcode_video_enabled: bool, // Enable transcoding of Video Streams?
-    transcode_codecs: Vec<SourceTargetMap>, // Mappings what codec should be transcoded into what other codec
-    audio_languages: Vec<String>, // List of Audio Languages to play on this device
-    subtitle_connection: Vec<SourceTargetMap>, // Connection what subtitle language to use for what audio language
-    encode_subtitles: bool, // Encode Subtitels into Video Stream insted of providing an individual Sub Track?
-    title_instead_of_name: bool, // Use Meta-Data Title instead of File Name?
-    hide_file_extension: bool, // Hide the File Extension from the user?
-    mux_to_match: bool, // Remove any unneeded Tracks (and provide a single audio and video track) instead of all?
+    pub display_name: String, // Name of the Renderer as it appears in Logs
+    pub user_agent_search: Vec<String>, // Text in "User-Agent" Header to search for and identifiy a Device
+    pub remote_ip: String, // Ip to identify a Device by
+    pub file_extensions: Vec<String>, // List of supported File Extensions by the Device
+    pub container_maps: Vec<SourceTargetMap>, // List of what unsupported Container should be mapped to what kind of supported one
+    pub transcode_container: String, // Default Container for transcoded elements
+    pub audio_channels: u8, // Number of Audio Channels the device supports
+    pub transcode_enabled: bool, // Enable Transcoding Engine in general?
+    pub transcode_audio_enabled: bool, // Enable transcoding of Audio Streams?
+    pub transcode_video_enabled: bool, // Enable transcoding of Video Streams?
+    pub transcode_codecs: Vec<SourceTargetMap>, // Mappings what codec should be transcoded into what other codec
+    pub audio_languages: Vec<String>, // List of Audio Languages to play on this device
+    pub subtitle_connection: Vec<SourceTargetMap>, // Connection what subtitle language to use for what audio language
+    pub encode_subtitles: bool, // Encode Subtitels into Video Stream insted of providing an individual Sub Track?
+    pub title_instead_of_name: bool, // Use Meta-Data Title instead of File Name?
+    pub hide_file_extension: bool, // Hide the File Extension from the user?
+    pub mux_to_match: bool, // Remove any unneeded Tracks (and provide a single audio and video track) instead of all?
 }
 
 impl RendererConfiguration {
@@ -51,7 +51,7 @@ impl RendererConfiguration {
     pub fn new() -> RendererConfiguration {
         RendererConfiguration {
             display_name: String::from("DEFAULT"),
-            user_agent_search: String::new(),
+            user_agent_search: Vec::new(),
             remote_ip: String::new(),
             file_extensions: Vec::new(),
             container_maps: Vec::new(),
