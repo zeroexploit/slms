@@ -19,6 +19,8 @@ use super::rendererconfiguration::SourceTargetMap;
 /// - Handle File System Errors -> Not Found, Permission Denied...
 /// - Add check for Renderers Configuration
 /// - Replace all Unwraps with error checks
+/// - Determine the Servers Ip Address
+/// - Generate Unique UUID
 pub struct ConfigurationHandler {
     pub server_configuration: ServerConfiguration, // Server Configurations
     pub renderer_configurations: Vec<RendererConfiguration>, // List of Renderer Configurations

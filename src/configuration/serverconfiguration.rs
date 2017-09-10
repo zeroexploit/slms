@@ -35,9 +35,9 @@ impl ServerConfiguration {
             generate_thumbnails: false,
             log_path: String::from("/var/log/slms.log"),
             log_level: 0,
-            server_tag: String::new(),
-            server_ip: String::new(),
-            server_uuid: String::new(),
+            server_tag: String::from("SLMS"),
+            server_ip: String::from("127.0.0.1"),
+            server_uuid: String::from("xxx"),
         }
     }
 }
