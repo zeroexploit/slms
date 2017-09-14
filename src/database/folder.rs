@@ -56,4 +56,8 @@ impl Folder {
             last_modified: self.last_modified,
         }
     }
+
+    pub fn generate_upnp_xml(&self) -> String {
+        String::new()
+    }
 }

@@ -652,4 +652,48 @@ impl DatabaseManager {
         let path = Path::new(path);
         if path.exists() { true } else { false }
     }
+
+    pub fn get_folder_from_parent(&self, parent_id: u64) -> Vec<Folder> {
+        let mut res_vec: Vec<Folder> = Vec::new();
+
+        for folder in &self.media_folders {
+            if folder.parent_id == parent_id {
+                res_vec.push(folder.clone());
+            }
+        }
+
+        res_vec
+    }
+
+    pub fn get_items_from_parent(&self, parent_id: u64) -> Vec<Item> {
+        let mut res_vec: Vec<Item> = Vec::new();
+
+        for item in &self.media_item {
+            if item.parent_id == parent_id {
+                res_vec.push(item.clone());
+            }
+        }
+
+        return res_vec;
+    }
+
+    pub fn get_folder_direct(&self, id: u64) -> Result<Folder, ()> {
+        for folder in &self.media_folders {
+            if folder.id == id {
+                return Ok(folder.clone());
+            }
+        }
+
+        Err(())
+    }
+
+    pub fn get_item_direct(&self, id: u64) -> Result<Item, ()> {
+        for item in &self.media_item {
+            if item.parent_id == id {
+                return Ok(item.clone());
+            }
+        }
+
+        Err(())
+    }
 }

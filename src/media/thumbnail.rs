@@ -10,6 +10,7 @@ use std::path::Path;
 ///
 /// # To-Do
 /// Add the creation Function once FFMPEG can be directly used.
+#[derive(Clone)]
 pub struct Thumbnail {
     pub item_id: u64,
     pub file_path: String,

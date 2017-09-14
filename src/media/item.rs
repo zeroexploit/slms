@@ -7,6 +7,7 @@ use tools::NameValuePair;
 ///
 /// This enumartion is used to set what kind of
 /// Media a File is. E.g. a Movie, Music, etc.
+#[derive(Clone)]
 pub enum MediaType {
     UNKNOWN,
     AUDIO,
@@ -44,6 +45,7 @@ impl MediaType {
 /// This structure holds all Meta Information that
 /// are supported by UPnP and can be extracted from
 /// a Media File.
+#[derive(Clone)]
 pub struct MetaData {
     pub title: String,
     pub genre: String,
@@ -183,6 +185,7 @@ impl MetaData {
 /// Some parts of these Data is aquired not from the File but the
 /// Database. Therefore, all Access should happen through the
 /// Database Manager only!
+#[derive(Clone)]
 pub struct Item {
     pub id: u64,
     pub parent_id: u64,
@@ -257,5 +260,9 @@ impl Item {
             ];
 
         pair_vec
+    }
+
+    pub fn generate_upnp_xml(&self) -> String {
+        String::new()
     }
 }

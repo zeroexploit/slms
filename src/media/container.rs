@@ -9,6 +9,7 @@ use tools;
 /// # To-Do
 /// This Structure needs to be edited once used and the documentation
 /// needs to be updated and proberly written.
+#[derive(Clone)]
 pub struct Container {
     pub id: u64,
     pub name: String,

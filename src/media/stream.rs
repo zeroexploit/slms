@@ -5,6 +5,7 @@ use tools;
 /// Enumaration that provides all possibilities of what
 /// kind of Stream we got.
 /// E.g.: Audio Track, Subtitle or Video Track
+#[derive(Clone)]
 pub enum StreamType {
     UNKNOWN,
     AUDIO,
@@ -67,6 +68,7 @@ impl StreamType {
 /// do not store all Information a Media Track might contain. No Meta Data like
 /// "Encoder" or similar. There is no Point in storing that information. Better
 /// save some memory here.
+#[derive(Clone)]
 pub struct Stream {
     pub index: u8,
     pub stream_type: StreamType,
