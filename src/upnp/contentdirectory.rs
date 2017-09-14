@@ -119,7 +119,10 @@ impl<'a, 'b> ContentDirectory<'a, 'b> {
 
         for index in item_index..items.len() {
             if act_count < requested_count || requested_count == 0 {
-                content.push_str(&items[index].generate_upnp_xml());
+                content.push_str(&items[index].generate_upnp_xml(
+                    &self.cfg_handler.renderer_configurations[0],
+                    &self.cfg_handler.server_configuration,
+                ));
                 act_count += 1;
             } else {
                 break;
@@ -208,7 +211,10 @@ impl<'a, 'b> ContentDirectory<'a, 'b> {
             Err(_) => {
                 match self.db_handler.get_item_direct(id) {
                     Ok(item) => {
-                        content.push_str(&item.generate_upnp_xml());
+                        content.push_str(&item.generate_upnp_xml(
+                            &self.cfg_handler.renderer_configurations[0],
+                            &self.cfg_handler.server_configuration,
+                        ));
                         result_nb = 1;
                     }
                     Err(_) => {}
@@ -232,7 +238,7 @@ impl<'a, 'b> ContentDirectory<'a, 'b> {
         self.xml_parser.open_tag("UpdateID", &empty_vec, true);
 
         let mut update_id = 0;
-        if (result_nb == 0) {
+        if result_nb == 0 {
             update_id = 1;
         } else {
             update_id = 2;

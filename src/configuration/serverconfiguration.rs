@@ -15,6 +15,7 @@ pub struct ServerConfiguration {
     pub generate_thumbnails: bool, // Generate Thumbnails?
     pub log_path: String, // Path to the Log File
     pub log_level: u8, // Log Level to use
+    pub server_ip: String,
 }
 
 impl ServerConfiguration {
@@ -32,6 +33,7 @@ impl ServerConfiguration {
             generate_thumbnails: false,
             log_path: String::from("/var/log/slms.log"),
             log_level: 0,
+            server_ip: String::new(),
         }
     }
 }
