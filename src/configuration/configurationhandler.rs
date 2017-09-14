@@ -165,7 +165,7 @@ impl ConfigurationHandler {
     /// Renderers. Returns true if everything went well and false
     /// if something did not work.
     fn parse_renderer(&mut self, path: &str) -> bool {
-        let mut success = true;
+        let success = true;
         let mut rnd_cfg: RendererConfiguration = RendererConfiguration::new();
 
         // Open Cfg File

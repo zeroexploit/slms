@@ -6,6 +6,7 @@ use media::Stream;
 use media::StreamType;
 use std::fs;
 use std::time;
+use std::path::Path;
 
 // TO-DO: Use FFmpeg libarys instead of external Tool -> Can not be compiled right now
 
@@ -209,6 +210,10 @@ impl MediaParser {
             }
         };
 
+        let f_path = Path::new(path);
+        target.meta_data.file_extension = f_path.extension().unwrap().to_str().unwrap().to_string();
+        target.meta_data.file_name = f_path.file_name().unwrap().to_str().unwrap().to_string();
+
         return true;
     }
 
@@ -227,6 +232,7 @@ impl MediaParser {
             "publisher" => target.meta_data.publisher = value.to_string(),
             "track" => target.meta_data.track_number = value.to_string(),
             "performer" => target.meta_data.actor = value.to_string(),
+            "title" => target.meta_data.title = value.to_string(),
             _ => (),
         }
     }

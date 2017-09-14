@@ -2,11 +2,14 @@ use super::container::Container;
 use super::stream::Stream;
 use super::thumbnail::Thumbnail;
 use tools::NameValuePair;
+use configuration::RendererConfiguration;
+use configuration::ServerConfiguration;
 
 /// # MediaType
 ///
 /// This enumartion is used to set what kind of
 /// Media a File is. E.g. a Movie, Music, etc.
+#[derive(Clone)]
 pub enum MediaType {
     UNKNOWN,
     AUDIO,
@@ -44,6 +47,7 @@ impl MediaType {
 /// This structure holds all Meta Information that
 /// are supported by UPnP and can be extracted from
 /// a Media File.
+#[derive(Clone)]
 pub struct MetaData {
     pub title: String,
     pub genre: String,
@@ -63,6 +67,8 @@ pub struct MetaData {
     pub date: String,
     pub copyrights: Vec<String>,
     pub composer: String,
+    pub file_name: String,
+    pub file_extension: String,
 }
 
 impl MetaData {
@@ -87,6 +93,8 @@ impl MetaData {
             date: String::new(),
             copyrights: Vec::new(),
             composer: String::new(),
+            file_name: String::new(),
+            file_extension: String::new(),
         }
     }
 
@@ -98,6 +106,14 @@ impl MetaData {
 
         if self.title.len() > 0 {
             pair_vec.push(NameValuePair::new("title", &self.title));
+        }
+
+        if self.file_name.len() > 0 {
+            pair_vec.push(NameValuePair::new("fileName", &self.file_name));
+        }
+
+        if self.file_extension.len() > 0 {
+            pair_vec.push(NameValuePair::new("fileExtension", &self.file_extension));
         }
 
         if self.genre.len() > 0 {
@@ -173,6 +189,12 @@ impl MetaData {
 
         pair_vec
     }
+
+    pub fn generate_upnp_xml(&self) -> String {
+        let xml: String = String::new();
+
+        xml
+    }
 }
 
 /// # Item
@@ -183,6 +205,7 @@ impl MetaData {
 /// Some parts of these Data is aquired not from the File but the
 /// Database. Therefore, all Access should happen through the
 /// Database Manager only!
+#[derive(Clone)]
 pub struct Item {
     pub id: u64,
     pub parent_id: u64,
@@ -221,6 +244,8 @@ impl Item {
     pub fn insert_meta_data(&mut self, name: &str, value: &str) {
         match name {
             "title" => self.meta_data.title = value.to_string(),
+            "fileName" => self.meta_data.file_name = value.to_string(),
+            "fileExtension" => self.meta_data.file_extension = value.to_string(),
             "genre" => self.meta_data.genre = value.to_string(),
             "description" => self.meta_data.description = value.to_string(),
             "longDescription" => self.meta_data.long_description = value.to_string(),
@@ -257,5 +282,138 @@ impl Item {
             ];
 
         pair_vec
+    }
+
+    pub fn generate_upnp_xml(
+        &self,
+        renderer_cfg: &RendererConfiguration,
+        server_cfg: &ServerConfiguration,
+    ) -> String {
+        let mut title: String = String::new();
+        let mut xml: String = String::from("&lt;item id=\"");
+        xml.push_str(&self.id.to_string());
+        xml.push_str("\" parentID=\"");
+        xml.push_str(&self.parent_id.to_string());
+        xml.push_str("\" restricted=\"1\"&gt;");
+
+        if renderer_cfg.title_instead_of_name {
+            title = self.meta_data.title.clone();
+        } else {
+            title = self.meta_data.file_name.clone();
+
+            if renderer_cfg.hide_file_extension == false {
+                title.push_str(".");
+                title.push_str(&self.meta_data.file_extension);
+            }
+
+        }
+
+        title = title.replace("&amp;", " u. ").replace("&", " u. ");
+
+        xml.push_str("&lt;dc:title&gt;");
+        xml.push_str(&title);
+        xml.push_str("&lt;/dc:title&gt;");
+
+        xml.push_str("&lt;res xmlns:dlna=\"urn:schemas-dlna-org:metadata-1-0/\" protocolInfo=\"http-get:*:*:DLNA.ORG_OP=11;DLNA.ORG_CI=0\" ");
+
+        match self.media_type {
+            MediaType::PICTURE => {
+                xml.push_str("bitrate=\"");
+                xml.push_str(&self.get_bitrate().to_string());
+                xml.push_str("\" ");
+
+
+                xml.push_str("duration=\"");
+                xml.push_str(&self.duration);
+                xml.push_str("\" ");
+
+                xml.push_str("nrAudioChannels=\"");
+                xml.push_str(&self.get_audio_channels().to_string());
+                xml.push_str("\" ");
+
+                xml.push_str("sampleFrequency=\"");
+                xml.push_str(&self.get_sample_rate().to_string());
+                xml.push_str("\" ");
+
+                match self.media_type {
+                    MediaType::VIDEO => {
+                        xml.push_str("resolution=\"");
+                        xml.push_str(&self.get_resolution());
+                        xml.push_str("\" ");
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+
+        xml.push_str("size=\"");
+        xml.push_str(&self.file_size.to_string());
+        xml.push_str("\"&gt;");
+        xml.push_str("http://");
+        xml.push_str(&server_cfg.server_ip);
+        xml.push_str(":");
+        xml.push_str(&server_cfg.server_port.to_string());
+        xml.push_str("/stream/");
+        xml.push_str(&self.id.to_string());
+        xml.push_str("&lt;/res&gt;");
+
+        match &self.media_type {
+            UNKNOWN => xml.push_str("&lt;upnp:class&gt;object.item.imageItem&lt;/upnp:class&gt;"),
+            AUDIO => xml.push_str("&lt;upnp:class&gt;object.item.audioItem&lt;/upnp:class&gt;"),
+            PICTURE => xml.push_str("&lt;upnp:class&gt;object.item.imageItem&lt;/upnp:class&gt;"),
+            VIDEO => xml.push_str("&lt;upnp:class&gt;object.item.videoItem&lt;/upnp:class&gt;"),
+        }
+
+        xml.push_str(&self.meta_data.generate_upnp_xml());
+
+        xml.push_str("&lt;/item&gt;");
+
+        xml
+    }
+
+    fn get_bitrate(&self) -> u64 {
+        let mut rate: u64 = 0;
+
+        for stream in &self.media_tracks {
+            rate += stream.bitrate;
+        }
+
+        rate
+    }
+
+    fn get_audio_channels(&self) -> u8 {
+        for stream in &self.media_tracks {
+            if stream.audio_channels != 0 {
+                return stream.audio_channels;
+            }
+        }
+
+        0
+    }
+
+    fn get_sample_rate(&self) -> u32 {
+        for stream in &self.media_tracks {
+            if stream.sample_rate != 0 {
+                return stream.sample_rate;
+            }
+        }
+
+        0
+    }
+
+    fn get_resolution(&self) -> String {
+        for stream in &self.media_tracks {
+            if stream.frame_width != 0 && stream.frame_height != 0 {
+                let mut resolution: String = String::new();
+                resolution.push_str(&stream.frame_width.to_string());
+                resolution.push_str("x");
+                resolution.push_str(&stream.frame_height.to_string());
+
+                return resolution;
+            }
+        }
+
+        String::new()
     }
 }
