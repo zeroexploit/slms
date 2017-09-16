@@ -40,6 +40,15 @@ impl ConfigurationHandler {
         }
     }
 
+    pub fn clone(&self) -> ConfigurationHandler {
+        ConfigurationHandler {
+            server_configuration: self.server_configuration.clone(),
+            renderer_configurations: self.renderer_configurations.clone(),
+            default_index: self.default_index,
+            cfg_file_path: self.cfg_file_path.clone(),
+        }
+    }
+
     /// Read in the Servers Configuration from the File at
     /// the given Path. The server_configuration Structure
     /// will than hold the readed Configuration.
@@ -71,8 +80,6 @@ impl ConfigurationHandler {
                 continue;
             }
 
-            println!("Name: \"{}\" - Value: \"{}\"", name, value);
-
             // Get Settings according their names
             match name.to_lowercase().as_ref() {
                 "servername" => self.server_configuration.server_name = value.to_string(),
@@ -98,6 +105,7 @@ impl ConfigurationHandler {
                 } 
                 "logfile" => self.server_configuration.log_path = value.to_string(),
                 "loglevel" => self.server_configuration.log_level = value.parse::<u8>().unwrap(),
+                "databasepath" => self.server_configuration.media_db_path = value.to_string(),
                 _ => (),
             }
         }
@@ -140,7 +148,6 @@ impl ConfigurationHandler {
         }
 
         // Parse all Renderers
-        println!("RENDERDIR: {}", self.server_configuration.renderer_dir);
         let paths = fs::read_dir(self.server_configuration.renderer_dir.clone()).unwrap();
 
         for path in paths {
@@ -190,8 +197,6 @@ impl ConfigurationHandler {
             if value.len() == 0 {
                 continue;
             }
-
-            println!("Name: \"{}\" - Value: \"{}\"", name, value);
 
             match name.to_lowercase().as_ref() {
                 "displayname" => rnd_cfg.display_name = value,

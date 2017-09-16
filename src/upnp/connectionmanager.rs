@@ -1,3 +1,6 @@
+use std::io::prelude::*;
+use std::net::TcpStream;
+
 use configuration::ServerConfiguration;
 
 /// # ConnectionManager
@@ -12,27 +15,112 @@ use configuration::ServerConfiguration;
 /// - Implement "Subscribe" and handle Events
 /// - Generate ProtocollInfo from actual MimeTypes available in Media Database
 /// - Actually keep track of connections
-pub struct ConnectionManager {
-    server_cfg: ServerConfiguration,
+/// - ERROR HANDLING!
+pub struct ConnectionManager<'a> {
+    server_cfg: &'a ServerConfiguration,
 }
 
-impl ConnectionManager {
+impl<'a> ConnectionManager<'a> {
     /// Creates a new ConnectionManager using the given Server Configuration
-    pub fn new(server_cfg: ServerConfiguration) -> ConnectionManager {
+    pub fn new(server_cfg: &'a ServerConfiguration) -> ConnectionManager<'a> {
         ConnectionManager { server_cfg }
+    }
+
+    pub fn send_data(&self, response: &str, stream: &mut TcpStream) -> bool {
+        stream.write(response.as_bytes()).unwrap();
+        stream.flush().unwrap();
+
+        true
+    }
+
+    pub fn handle_connection(&self, stream: &mut TcpStream) -> String {
+        let mut buffer = [0; 4096];
+        let mut readed: usize = 0;
+        let mut content_size: usize = 0;
+        let mut content_size_expected: usize = 0;
+        let mut content: String = String::new();
+        let mut header_received: bool = false;
+        let mut header_content: String = String::new();
+
+        loop {
+            match stream.read(&mut buffer) {
+                Ok(bytes) => readed = bytes,
+                Err(_) => {
+                    break;
+                }
+            }
+
+            let tmp_content: String = String::from_utf8(buffer[..readed].to_vec()).unwrap();
+
+            if header_received {
+                content.push_str(&tmp_content);
+                content_size += readed;
+
+                if content_size >= content_size_expected {
+                    break;
+                }
+            } else {
+                content.push_str(&tmp_content);
+
+                match content.find("\r\n\r\n") {
+                    Some(position) => {
+                        // Get Content Length
+                        let mut header = content[0..position].to_lowercase();
+                        header_content = content[0..(position + 4)].to_string();
+
+                        match header.find("content-length:") {
+                            Some(content_pos) => {
+                                header = header[(content_pos + 16)..].to_string();
+                                match header.find("\r\n") {
+                                    Some(inner_pos) => {
+                                        header = header[..inner_pos].to_string();
+                                    }
+                                    _ => {}
+                                }
+
+                                content_size_expected = header.trim().parse::<usize>().unwrap();
+                            }
+                            _ => {
+                                break;
+                            }
+                        }
+
+                        // Set Header is complete
+                        header_received = true;
+
+                        if position + 4 < content.len() {
+                            content = content[(position + 4)..].to_string();
+                            content_size = content.len();
+                        } else {
+                            content = String::new();
+                            content_size = 0;
+                        }
+
+                        // Recheck if everything is there
+                        if content_size >= content_size_expected {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        header_content.push_str(&content);
+        return header_content;
     }
 
     /// Takes a Request and returns the corresponding XML Answer Content.
     /// Content only. No Headers!
     /// Returns an empty String Response could not be generated
     pub fn handle_request(&self, request: &str) -> String {
-        if &request[..32] == "GET /description/description.xml" {
+        if &request[..31] == "GET /connection/description.xml" {
             return self.get_device_description();
-        } else if &request[..34] == "SUBSCRIBE /description/connection_manager" {
+        } else if &request[..40] == "SUBSCRIBE /connection/connection_manager" {
             return self.do_subscribe();
-        } else if &request[..39] == "GET /description/connection_manager.xml" {
+        } else if &request[..38] == "GET /connection/connection_manager.xml" {
             return self.get_connection_manager_description();
-        } else if &request[..38] == "GET /description/content_directory.xml" {
+        } else if &request[..37] == "GET /connection/content_directory.xml" {
             return self.get_content_directory_description();
         } else if request.find("u:GetProtocolInfo").is_some() {
             return self.get_protocoll_info();
@@ -62,12 +150,13 @@ impl ConnectionManager {
 
     /// Generates the ProtocolInfo Response
     fn get_protocoll_info(&self) -> String {
+        // INCLUDE rtsp-rtp-udp:*:*:* once rtsp is supported!
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>
          <s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/ s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"\">
 	         <s:Body>
 		         <u:GetProtocolInfoResponse xmlns:u=\"urn:schemas-upnp-org:service:ConnectionManager:1\">
 			         <Source>
-				         http-get:*:*:*,rtsp-rtp-udp:*:*:*
+				         http-get:*:*:*
 			         </Source>
 			         <Sink>
 			         </Sink>
@@ -133,16 +222,16 @@ impl ConnectionManager {
                                 <service>
                                         <serviceType>urn:schemas-upnp-org:service:ContentDirectory:1</serviceType>
                                         <serviceId>urn:upnp-org:serviceId:ContentDirectory</serviceId>
-                                        <SCPDURL>/description/content_directory.xml</SCPDURL>
-                                        <controlURL>/upnp/content_directory</controlURL>
-                                        <eventSubURL>/upnp/content_directory</eventSubURL>
+                                        <SCPDURL>/connection/content_directory.xml</SCPDURL>
+                                        <controlURL>/content/content_directory</controlURL>
+                                        <eventSubURL>/content/content_directory</eventSubURL>
                               </service>
                                 <service>
                                         <serviceType>urn:schemas-upnp-org:service:ConnectionManager:1</serviceType>
                                         <serviceId>urn:upnp-org:serviceId:ConnectionManager</serviceId>
-                                        <SCPDURL>/description/connection_manager.xml</SCPDURL>
-                                        <controlURL>/description/connection_manager</controlURL>
-                                        <eventSubURL>/description/connection_manager</eventSubURL>
+                                        <SCPDURL>/connection/connection_manager.xml</SCPDURL>
+                                        <controlURL>/connection/connection_manager</controlURL>
+                                        <eventSubURL>/connection/connection_manager</eventSubURL>
                                 </service>
                         </serviceList>
                 </device>
