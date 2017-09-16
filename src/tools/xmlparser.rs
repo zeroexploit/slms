@@ -119,7 +119,6 @@ impl XMLEntry {
 pub struct XMLParser {
     pub xml_content: String,
     pub xml_entries: Vec<XMLEntry>,
-    tab_counter: u32,
 }
 
 impl XMLParser {
@@ -128,7 +127,6 @@ impl XMLParser {
         XMLParser {
             xml_content: String::new(),
             xml_entries: Vec::new(),
-            tab_counter: 0,
         }
     }
 
@@ -143,7 +141,6 @@ impl XMLParser {
         let mut parser = XMLParser::new();
         parser.xml_content = content.to_string();
         parser.xml_entries = parser.parse(content);
-        parser.tab_counter = 0;
 
         return parser;
     }
@@ -332,16 +329,7 @@ impl XMLParser {
     /// Starts a new XML Content String. Use this before adding any Tags. This will overwrite
     /// any existing XML Data!
     pub fn start_xml(&mut self) {
-        self.xml_content = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n".to_string();
-    }
-
-    /// This function inserts some Tabs into the actual content.
-    /// Even if this was not required, it makes reading the XML Content more
-    /// user-friendly.
-    fn insert_tab(&mut self) {
-        for _ in 0..self.tab_counter {
-            self.xml_content += "\t";
-        }
+        self.xml_content = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>".to_string();
     }
 
     /// Insert the Value to a XML Tag. The Tag needs to be opened before, closed after and shall not
@@ -351,10 +339,7 @@ impl XMLParser {
     ///
     /// * `value` - The Value that should be added to a Tag -- <>value</>
     pub fn insert_value(&mut self, value: &str) {
-        self.tab_counter += 1;
-        self.insert_tab();
         self.xml_content += value;
-        self.xml_content += "\n";
     }
 
     /// Open a new XML Tag with the given Attributes. If there is no Content than the Tag will be closed
@@ -366,8 +351,6 @@ impl XMLParser {
     /// * `attributes` - List of NameValuePairs to be set as Tag Attributes. -- <.. attr1="val1" attr2="val2" ..>
     /// * `has_content` - Set to true if the Tag will contain any other sub-content. Set to false if not. -- true - <>value</> | false - </>
     pub fn open_tag(&mut self, name: &str, attributes: &Vec<NameValuePair>, has_content: bool) {
-        self.tab_counter += 1;
-        self.insert_tab();
         self.xml_content += "<";
         self.xml_content.push_str(name);
 
@@ -383,10 +366,9 @@ impl XMLParser {
         }
 
         if has_content {
-            self.xml_content += ">\n";
+            self.xml_content += ">";
         } else {
-            self.xml_content += "/>\n";
-            self.tab_counter -= 1;
+            self.xml_content += "/>";
         }
     }
 
@@ -398,11 +380,7 @@ impl XMLParser {
     pub fn close_tag(&mut self, name: &str) {
         self.xml_content += "</";
         self.xml_content += name;
-        self.xml_content += ">\n";
-
-        if self.tab_counter > 0 {
-            self.tab_counter -= 1;
-        }
+        self.xml_content += ">";
     }
 
     /// Takes a list of XMLEntrys and extracts the one with the given Name.

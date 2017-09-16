@@ -30,10 +30,19 @@ pub struct Logger {
 impl Logger {
     /// Create a new Instance of the Logger with the given
     /// LogLevel and Path to the File to create.
-    pub fn new(log_path: &str, log_level: LogLevel) -> Logger {
+    pub fn new(log_path: &str, log_level: u8) -> Logger {
+
+        let l_level = match log_level {
+            0 => LogLevel::OFF,
+            1 => LogLevel::INFORMATION,
+            2 => LogLevel::ERROR,
+            3 => LogLevel::DEBUG,
+            _ => LogLevel::VERBOSE,
+        };
+
         Logger {
             logfile_path: log_path.to_string(),
-            log_level,
+            log_level: l_level,
         }
     }
 

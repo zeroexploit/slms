@@ -18,6 +18,7 @@ pub struct ServerConfiguration {
     pub server_tag: String, // Server Tag as Idenification
     pub server_ip: String, // Server IP
     pub server_uuid: String, // Server UUID
+    pub media_db_path: String, // Path where to store the Media Database
 }
 
 impl ServerConfiguration {
@@ -38,6 +39,26 @@ impl ServerConfiguration {
             server_tag: String::from("SLMS"),
             server_ip: String::from("127.0.0.1"),
             server_uuid: String::from("xxx"),
+            media_db_path: String::from("/var/lib/slms/db.xml"),
+        }
+    }
+
+    pub fn clone(&self) -> ServerConfiguration {
+        ServerConfiguration {
+            server_name: self.server_name.clone(),
+            renderer_dir: self.renderer_dir.clone(),
+            default_renderer_path: self.default_renderer_path.clone(),
+            thumbnail_dir: self.thumbnail_dir.clone(),
+            server_port: self.server_port,
+            server_interface: self.server_interface.clone(),
+            share_dirs: self.share_dirs.clone(),
+            generate_thumbnails: self.generate_thumbnails,
+            log_path: self.log_path.clone(),
+            log_level: self.log_level,
+            server_tag: self.server_tag.clone(),
+            server_ip: self.server_ip.clone(),
+            server_uuid: self.server_uuid.clone(),
+            media_db_path: self.media_db_path.clone(),
         }
     }
 }

@@ -47,12 +47,18 @@ impl DatabaseManager {
     /// the entire Media Database and also manages it. It is required to
     /// specifie a path where the Database should be stored (as XML File)
     /// and the current media shares as well.
-    pub fn new(db_path: &str, shares: Vec<String>) -> DatabaseManager {
+    pub fn load(&mut self, db_path: &str, shares: Vec<String>) {
+        self.path = db_path.to_string();
+        self.share_folders = shares;
+        self.latest_id = 1;
+    }
+
+    pub fn new() -> DatabaseManager {
         DatabaseManager {
-            path: db_path.to_string(),
+            path: String::from("/var/lib/slms/db.xml"),
             media_item: Vec::new(),
             media_folders: Vec::new(),
-            share_folders: shares,
+            share_folders: Vec::new(),
             media_formats: Vec::new(),
             latest_id: 1,
             parser: MediaParser::new(),
@@ -288,60 +294,48 @@ impl DatabaseManager {
                 }
             }
 
-            xml_parser.open_tag("folder", &folder.get_name_value_pairs(), true);
+            xml_parser.open_tag("folder", &folder.get_name_value_pairs(), false);
+        }
 
-            // Go through all Items
-            for item in &self.media_item {
-                // Write only the Items inside current Foder
-                if item.parent_id == folder.id {
-
-                    // Check if file exists and was not changed
-                    if check_changed {
-                        if self.does_exist(&item.file_path) {
-                            // Add a File only if nothing has change
-                            if DatabaseManager::get_last_modified(&item.file_path) >
-                                item.last_modified
-                            {
-                                continue;
-                            }
-                        } else {
-                            continue;
-                        }
+        // Go through all Items
+        for item in &self.media_item {
+            // Check if file exists and was not changed
+            if check_changed {
+                if self.does_exist(&item.file_path) {
+                    // Add a File only if nothing has change
+                    if DatabaseManager::get_last_modified(&item.file_path) > item.last_modified {
+                        continue;
                     }
-
-                    xml_parser.open_tag("item", &item.get_name_value_pairs(), true);
-
-                    // Write Streams
-                    for stream in &item.media_tracks {
-                        xml_parser.open_tag("stream", &stream.get_name_value_pairs(), false);
-                    }
-
-                    // Write Thumbnail Data if available
-                    if item.thumbnail.is_available() {
-                        xml_parser.open_tag(
-                            "thumbnail",
-                            &item.thumbnail.get_name_value_pairs(),
-                            false,
-                        );
-                    }
-
-                    // Write Meta Tags
-                    let meta_attr = item.meta_data.get_name_value_pairs();
-
-                    for meta in meta_attr {
-                        let tmp_list: Vec<NameValuePair> =
-                            vec![
-                                NameValuePair::new("name", &meta.name),
-                                NameValuePair::new("value", &meta.value),
-                            ];
-                        xml_parser.open_tag("meta", &tmp_list, false);
-                    }
-
-                    xml_parser.close_tag("item");
+                } else {
+                    continue;
                 }
             }
 
-            xml_parser.close_tag("folder");
+            xml_parser.open_tag("item", &item.get_name_value_pairs(), true);
+
+            // Write Streams
+            for stream in &item.media_tracks {
+                xml_parser.open_tag("stream", &stream.get_name_value_pairs(), false);
+            }
+
+            // Write Thumbnail Data if available
+            if item.thumbnail.is_available() {
+                xml_parser.open_tag("thumbnail", &item.thumbnail.get_name_value_pairs(), false);
+            }
+
+            // Write Meta Tags
+            let meta_attr = item.meta_data.get_name_value_pairs();
+
+            for meta in meta_attr {
+                let tmp_list: Vec<NameValuePair> = vec![
+                    NameValuePair::new("name", &meta.name),
+                    NameValuePair::new("value", &meta.value),
+                ];
+                xml_parser.open_tag("meta", &tmp_list, false);
+            }
+
+            xml_parser.close_tag("item");
+
         }
 
         xml_parser.close_tag("root");
@@ -455,62 +449,64 @@ impl DatabaseManager {
 
         // Media Folders
         for folder in root_xml.sub_tags {
-            let mut tmp_folder: Folder = Folder::new();
-            tmp_folder.element_count = XMLParser::get_value_from_name(&folder.attributes, "count")
-                .parse::<u32>()
-                .unwrap();
-            tmp_folder.id = XMLParser::get_value_from_name(&folder.attributes, "id")
-                .parse::<u64>()
-                .unwrap();
-            tmp_folder.parent_id = XMLParser::get_value_from_name(&folder.attributes, "parentId")
-                .parse::<u64>()
-                .unwrap();
-            tmp_folder.last_modified =
-                XMLParser::get_value_from_name(&folder.attributes, "lastModified")
+            if folder.tag == "folder" {
+                let mut tmp_folder: Folder = Folder::new();
+                tmp_folder.element_count =
+                    XMLParser::get_value_from_name(&folder.attributes, "count")
+                        .parse::<u32>()
+                        .unwrap();
+                tmp_folder.id = XMLParser::get_value_from_name(&folder.attributes, "id")
                     .parse::<u64>()
                     .unwrap();
-            tmp_folder.path = XMLParser::get_value_from_name(&folder.attributes, "path");
-            tmp_folder.title = XMLParser::get_value_from_name(&folder.attributes, "title");
+                tmp_folder.parent_id =
+                    XMLParser::get_value_from_name(&folder.attributes, "parentId")
+                        .parse::<u64>()
+                        .unwrap();
+                tmp_folder.last_modified =
+                    XMLParser::get_value_from_name(&folder.attributes, "lastModified")
+                        .parse::<u64>()
+                        .unwrap();
+                tmp_folder.path = XMLParser::get_value_from_name(&folder.attributes, "path");
+                tmp_folder.title = XMLParser::get_value_from_name(&folder.attributes, "title");
 
-            self.set_latest_id(tmp_folder.id);
+                self.set_latest_id(tmp_folder.id);
 
-            // Check if folder exists -> skip everything else if not -> there can not be any content if the parent is lost
-            if self.does_exist(&tmp_folder.path) {
-                // Add a Folder only if nothing has changed but still parse its contents as long as it exists
-                if DatabaseManager::get_last_modified(&tmp_folder.path) <=
-                    tmp_folder.last_modified
-                {
-                    self.media_folders.push(tmp_folder);
+                // Check if folder exists -> skip everything else if not -> there can not be any content if the parent is lost
+                if self.does_exist(&tmp_folder.path) {
+                    // Add a Folder only if nothing has changed but still parse its contents as long as it exists
+                    if DatabaseManager::get_last_modified(&tmp_folder.path) <=
+                        tmp_folder.last_modified
+                    {
+                        self.media_folders.push(tmp_folder);
+                    }
+                } else {
+                    continue;
                 }
-            } else {
-                continue;
-            }
-
-            // Media Items
-            for item in folder.sub_tags {
+            } else if folder.tag == "item" {
+                // Media Items
                 let mut tmp_item: Item = Item::new();
-                tmp_item.duration = XMLParser::get_value_from_name(&item.attributes, "duration");
-                tmp_item.file_path = XMLParser::get_value_from_name(&item.attributes, "path");
-                tmp_item.file_size = XMLParser::get_value_from_name(&item.attributes, "size")
+                tmp_item.duration = XMLParser::get_value_from_name(&folder.attributes, "duration");
+                tmp_item.file_path = XMLParser::get_value_from_name(&folder.attributes, "path");
+                tmp_item.file_size = XMLParser::get_value_from_name(&folder.attributes, "size")
                     .parse::<u64>()
                     .unwrap();
-                tmp_item.id = XMLParser::get_value_from_name(&item.attributes, "id")
+                tmp_item.id = XMLParser::get_value_from_name(&folder.attributes, "id")
                     .parse::<u64>()
                     .unwrap();
                 tmp_item.last_modified =
-                    XMLParser::get_value_from_name(&item.attributes, "lastModified")
+                    XMLParser::get_value_from_name(&folder.attributes, "lastModified")
                         .parse::<u64>()
                         .unwrap();
                 tmp_item.media_type = MediaType::from_string(
-                    &XMLParser::get_value_from_name(&item.attributes, "type"),
+                    &XMLParser::get_value_from_name(&folder.attributes, "type"),
                 );
-                tmp_item.parent_id = XMLParser::get_value_from_name(&item.attributes, "parentId")
+                tmp_item.parent_id = XMLParser::get_value_from_name(&folder.attributes, "parentId")
                     .parse::<u64>()
                     .unwrap();
                 self.set_latest_id(tmp_item.id);
 
                 // Streams
-                for stream in item.sub_tags {
+                for stream in folder.sub_tags {
                     match stream.tag.as_ref() {
                         "stream" => {
                             let mut tmp_stream: Stream = Stream::new();
