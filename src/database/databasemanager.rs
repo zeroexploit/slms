@@ -685,7 +685,7 @@ impl DatabaseManager {
 
     pub fn get_item_direct(&self, id: u64) -> Result<Item, ()> {
         for item in &self.media_item {
-            if item.parent_id == id {
+            if item.id == id {
                 return Ok(item.clone());
             }
         }

@@ -110,8 +110,8 @@ impl MediaParser {
 
         // Parse the Streams
         let streams_entry: XMLEntry = XMLParser::find_tag(&xml_parser.xml_entries, "streams");
-	let mut has_audio = false;
-	let mut has_video = false;
+        let mut has_audio = false;
+        let mut has_video = false;
 
         for stream_entry in streams_entry.sub_tags {
             let mut stream: Stream = Stream::new();
@@ -124,8 +124,14 @@ impl MediaParser {
                     "codec_name" => stream.codec_name = attr.value,
                     "codec_type" => {
                         match attr.value.as_ref() {
-                            "audio" => { has_audio = true; stream.stream_type = StreamType::AUDIO; },
-                            "video" => { has_video = true; stream.stream_type = StreamType::VIDEO },
+                            "audio" => {
+                                has_audio = true;
+                                stream.stream_type = StreamType::AUDIO;
+                            }
+                            "video" => {
+                                has_video = true;
+                                stream.stream_type = StreamType::VIDEO
+                            }
                             "image" => stream.stream_type = StreamType::IMAGE,
                             "picture" => stream.stream_type = StreamType::IMAGE,
                             "subtitle" => stream.stream_type = StreamType::SUBTITLE,
@@ -187,15 +193,12 @@ impl MediaParser {
             }
 
             // Add the Stream to the Media Item if not unknown
-	    match stream.stream_type 
-   	    { 
-		    StreamType::UNKNOWN =>
-		    {},
-		    _ => 
-			 {
-				target.media_tracks.push(stream);
-			 },
-	    }
+            match stream.stream_type { 
+                StreamType::UNKNOWN => {}
+                _ => {
+                    target.media_tracks.push(stream);
+                }
+            }
         }
 
         // Add last modified date
@@ -221,37 +224,33 @@ impl MediaParser {
             }
         };
 
-	// Add Filename and Extension
+        // Add Filename and Extension
         let f_path = Path::new(path);
         target.meta_data.file_extension = f_path.extension().unwrap().to_str().unwrap().to_string();
         target.meta_data.file_name = f_path.file_name().unwrap().to_str().unwrap().to_string();
-	target.meta_data.file_name = target.meta_data.file_name[..(target.meta_data.file_name.len() - target.meta_data.file_extension.len() - 1)].to_string();
+        target.meta_data.file_name =
+            target.meta_data.file_name[..(target.meta_data.file_name.len() -
+                                              target.meta_data.file_extension.len() -
+                                              1)]
+                .to_string();
 
-	// Determine Media Type
-	if has_audio || has_video
-	{
-		if has_audio
-		{
-			target.media_type = MediaType::AUDIO;
-		}
+        // Determine Media Type
+        if has_audio || has_video {
+            if has_audio {
+                target.media_type = MediaType::AUDIO;
+            }
 
-		if has_video
-		{
-			target.media_type = MediaType::VIDEO;
-		}
-	}
-	else
-	{
-		if has_video == false && has_audio == false && target.media_tracks.len() > 0
-		{
-			target.media_type = MediaType::PICTURE;
-		}
-		else
-		{
-			target.media_type = MediaType::UNKNOWN;
-			return false;
-		}
-	}
+            if has_video {
+                target.media_type = MediaType::VIDEO;
+            }
+        } else {
+            if has_video == false && has_audio == false && target.media_tracks.len() > 0 {
+                target.media_type = MediaType::PICTURE;
+            } else {
+                target.media_type = MediaType::UNKNOWN;
+                return false;
+            }
+        }
 
         return true;
     }

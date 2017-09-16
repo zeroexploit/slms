@@ -1,6 +1,7 @@
 use std::net::TcpListener;
 use std::thread;
 use std::sync::Mutex;
+use daemonize::Daemonize;
 
 use configuration::ConfigurationHandler;
 use tools::Logger;
@@ -51,6 +52,14 @@ impl MediaServer {
         // Bring to Background if requested
         if daemonize {
             println!("Moving Application to the Background...");
+            let daemonize = Daemonize::new();
+
+            match daemonize.start() {
+                Err(_) => return,
+                Ok(_) => {
+                    println!("Unable to daemonize! Aborting..");
+                }
+            }
         }
 
         // Bring up the Media Database
@@ -91,6 +100,26 @@ impl MediaServer {
                     xml = con_dir.handle_request(&content);
                 } else if content.find("/stream/").is_some() {
                     // Streaming
+                    let id_field: &str = &content[(content.find("/stream/").unwrap() + 8)..];
+                    let id: u64 = id_field[..(id_field.find(" ").unwrap())]
+                        .parse::<u64>()
+                        .unwrap();
+
+                    let item = db_manager.lock().unwrap().get_item_direct(id).unwrap();
+
+                    http::stream_file(&content, &item, &mut stream, &svr_cfg.server_tag);
+
+                    return;
+                } else if content.find("/files/images/icon.png").is_some() {
+                    http::send_file(
+                        &content,
+                        "/var/lib/slms/icon.png",
+                        &mut stream,
+                        &svr_cfg.server_tag,
+                        "image/png",
+                    );
+
+                    return;
                 }
 
                 if xml.len() > 0 {

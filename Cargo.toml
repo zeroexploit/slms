@@ -6,3 +6,4 @@ authors = ["Jörn Roddelkopf"]
 [dependencies]
 chrono = "*"
 lazy_static = "*"
+daemonize="*"

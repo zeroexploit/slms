@@ -314,7 +314,11 @@ impl Item {
         xml.push_str(&title);
         xml.push_str("&lt;/dc:title&gt;");
 
-        xml.push_str("&lt;res xmlns:dlna=\"urn:schemas-dlna-org:metadata-1-0/\" protocolInfo=\"http-get:*:*:DLNA.ORG_OP=11;DLNA.ORG_CI=0\" ");
+        xml.push_str(
+            "&lt;res xmlns:dlna=\"urn:schemas-dlna-org:metadata-1-0/\" protocolInfo=\"http-get:*:",
+        );
+        xml.push_str(&self.get_mime_type());
+        xml.push_str(":DLNA.ORG_OP=11;DLNA.ORG_CI=0\" ");
 
         match self.media_type {
             MediaType::PICTURE => {
@@ -358,11 +362,19 @@ impl Item {
         xml.push_str(&self.id.to_string());
         xml.push_str("&lt;/res&gt;");
 
-        match &self.media_type {
-            UNKNOWN => xml.push_str("&lt;upnp:class&gt;object.item.imageItem&lt;/upnp:class&gt;"),
-            AUDIO => xml.push_str("&lt;upnp:class&gt;object.item.audioItem&lt;/upnp:class&gt;"),
-            PICTURE => xml.push_str("&lt;upnp:class&gt;object.item.imageItem&lt;/upnp:class&gt;"),
-            VIDEO => xml.push_str("&lt;upnp:class&gt;object.item.videoItem&lt;/upnp:class&gt;"),
+        match self.media_type {
+            MediaType::UNKNOWN => {
+                xml.push_str("&lt;upnp:class&gt;object.item.imageItem&lt;/upnp:class&gt;")
+            }
+            MediaType::AUDIO => {
+                xml.push_str("&lt;upnp:class&gt;object.item.audioItem&lt;/upnp:class&gt;")
+            }
+            MediaType::PICTURE => {
+                xml.push_str("&lt;upnp:class&gt;object.item.imageItem&lt;/upnp:class&gt;")
+            }
+            MediaType::VIDEO => {
+                xml.push_str("&lt;upnp:class&gt;object.item.videoItem&lt;/upnp:class&gt;")
+            }
         }
 
         xml.push_str(&self.meta_data.generate_upnp_xml());
@@ -415,5 +427,38 @@ impl Item {
         }
 
         String::new()
+    }
+
+    pub fn get_mime_type(&self) -> String {
+        match self.media_type {
+            MediaType::VIDEO => {
+                match self.meta_data.file_extension.to_lowercase().as_str() {
+                    "mkv" => return "video/x-matroska".to_string(),
+                    "avi" => return "video/x-msvideo".to_string(),
+                    "mpeg" | "mpg" | "mpe" => return "video/mpeg".to_string(),
+                    "mov" | "qt" => return "video/quicktime".to_string(),
+                    "mp4" => return "video/mp4".to_string(),
+                    _ => return "video/*".to_string(),
+
+                }
+            }
+            MediaType::AUDIO => {
+                match self.meta_data.file_extension.to_lowercase().as_str() {
+                    "mp3" => return "audio/mpeg".to_string(),
+                    "wav" => return "audio/x-wav".to_string(),
+                    "flac" => return "audio/flac".to_string(),
+                    _ => return "audio/*".to_string(),
+                }
+            }
+            MediaType::PICTURE => {
+                match self.meta_data.file_extension.to_lowercase().as_str() {
+                    "jpg" | "jpeg" | "jpe" => return "image/jpeg".to_string(),
+                    "png" => return "image/png".to_string(),
+                    _ => return "image/*".to_string(),
+                }
+            }
+            _ => return "*".to_string(),
+        }
+
     }
 }

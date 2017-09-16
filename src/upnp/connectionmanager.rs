@@ -150,12 +150,13 @@ impl<'a> ConnectionManager<'a> {
 
     /// Generates the ProtocolInfo Response
     fn get_protocoll_info(&self) -> String {
+        // INCLUDE rtsp-rtp-udp:*:*:* once rtsp is supported!
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>
          <s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/ s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"\">
 	         <s:Body>
 		         <u:GetProtocolInfoResponse xmlns:u=\"urn:schemas-upnp-org:service:ConnectionManager:1\">
 			         <Source>
-				         http-get:*:*:*,rtsp-rtp-udp:*:*:*
+				         http-get:*:*:*
 			         </Source>
 			         <Sink>
 			         </Sink>

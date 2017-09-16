@@ -329,7 +329,7 @@ impl XMLParser {
     /// Starts a new XML Content String. Use this before adding any Tags. This will overwrite
     /// any existing XML Data!
     pub fn start_xml(&mut self) {
-        self.xml_content = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>".to_string();
+        self.xml_content = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n".to_string();
     }
 
     /// Insert the Value to a XML Tag. The Tag needs to be opened before, closed after and shall not
@@ -368,7 +368,7 @@ impl XMLParser {
         if has_content {
             self.xml_content += ">";
         } else {
-            self.xml_content += "/>";
+            self.xml_content += "/>\n";
         }
     }
 
@@ -380,7 +380,7 @@ impl XMLParser {
     pub fn close_tag(&mut self, name: &str) {
         self.xml_content += "</";
         self.xml_content += name;
-        self.xml_content += ">";
+        self.xml_content += ">\n";
     }
 
     /// Takes a list of XMLEntrys and extracts the one with the given Name.
