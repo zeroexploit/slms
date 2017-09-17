@@ -128,7 +128,7 @@ impl MediaServer {
                         "text/xml",
                         false,
                         &svr_cfg,
-                        http::Status::OK_200,
+                        http::Status::Ok200,
                     );
 
                     response.push_str(&xml);
@@ -140,7 +140,7 @@ impl MediaServer {
                         "text/html",
                         false,
                         &svr_cfg,
-                        http::Status::INTERNAL_SERVER_ERROR_500,
+                        http::Status::InternalServerError500,
                     );
 
                     con_manager.send_data(&response, &mut stream);

@@ -1,6 +1,4 @@
-extern crate chrono;
-
-use self::chrono::Local;
+use chrono::Local;
 use std::fs::OpenOptions;
 use std::io::prelude::*;
 

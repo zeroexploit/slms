@@ -98,7 +98,8 @@ impl<'a, 'b> ContentDirectory<'a, 'b> {
         let mut act_count: u64 = 0;
         let mut item_index: usize = 0;
 
-        let folders: Vec<Folder> = self.db_handler.get_folder_from_parent(id);
+        let mut folders: Vec<Folder> = self.db_handler.get_folder_from_parent(id);
+        folders.sort_by(|a, b| a.title.cmp(&b.title));
 
         for index in start_index..folders.len() {
             if act_count < requested_count || requested_count == 0 {
@@ -109,7 +110,8 @@ impl<'a, 'b> ContentDirectory<'a, 'b> {
             }
         }
 
-        let items: Vec<Item> = self.db_handler.get_items_from_parent(id);
+        let mut items: Vec<Item> = self.db_handler.get_items_from_parent(id);
+        items.sort_by(|a, b| a.meta_data.file_name.cmp(&b.meta_data.file_name));
 
         if act_count > 0 {
             item_index = 0;

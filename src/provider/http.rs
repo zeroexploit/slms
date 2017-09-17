@@ -1,27 +1,27 @@
 use std::io::prelude::*;
 use std::net::TcpStream;
-use std::fs;
-use std::fs::File;
+use std::fs::{metadata, File};
 use std::io::SeekFrom;
+use chrono::Local;
+use chrono::Duration;
 
 use configuration::ServerConfiguration;
 use media::Item;
 
 pub enum Status {
-    OK_200,
-    NOT_FOUND_404,
-    PARTIAL_CONTENT_206,
-    INTERNAL_SERVER_ERROR_500,
+    Ok200,
+    NotFound404,
+    PartialContent206,
+    InternalServerError500,
 }
 
 impl Status {
     pub fn get(&self) -> String {
         match self {
-            OK_200 => String::from("200 OK"),
-            NOT_FOUND_404 => String::from("404 Not Found"),
-            PARTIAL_CONTENT_206 => String::from("206 Partial Content"),
-            INTERNAL_SERVER_ERROR_500 => String::from("500 Internal Server Error"),
-            _ => String::from("500 Internal Server Error"),
+            &Status::Ok200 => String::from("200 OK"),
+            &Status::NotFound404 => String::from("404 Not Found"),
+            &Status::PartialContent206 => String::from("206 Partial Content"),
+            &Status::InternalServerError500 => String::from("500 Internal Server Error"),
         }
     }
 }
@@ -33,38 +33,37 @@ pub fn generate_header(
     server_cfg: &ServerConfiguration,
     status: Status,
 ) -> String {
-    let mut header: String = String::from("HTTP/1.1 ");
-    header.push_str(&status.get());
-    header.push_str("\r\n");
-    header.push_str("Content-Type: ");
-    header.push_str(mime);
-    header.push_str("\r\n");
-    header.push_str("Content-Length: ");
-    header.push_str(&content_size.to_string());
-    header.push_str("\r\n");
+    let now = Local::now();
 
-    if keep_alive {
-        header.push_str("Connection: Keep-Alive\r\n");
-    } else {
-        header.push_str("Connection: Close\r\n");
-    }
-
-    header.push_str("SID: uuid:");
-    header.push_str(&server_cfg.server_uuid);
-    header.push_str("\r\n");
-    header.push_str("Cache-Control: no-cache\r\n");
-    header.push_str("Server: ");
-    header.push_str(&server_cfg.server_tag);
-    header.push_str("\r\n\r\n");
-
-    header
+    return format!(
+        "HTTP/1.1 {}\r\n\
+		 Content-Type: {}\r\n\
+		 Content-Length: {}\r\n\
+		 Connection: {}\r\n\
+		 SID: uuid: {} \r\n\
+		 Cache-Control: no-cache\r\n\
+		 Date: {}\r\n\
+		 Expires: {}\r\n\
+		 Server: {}\r\n\r\n",
+        status.get(),
+        mime,
+        content_size,
+        if keep_alive { "Keep-Alive" } else { "Close" },
+        server_cfg.server_uuid,
+        now.format("%a, %d %b %Y %H:%M:%S GMT%z"),
+        match now.checked_add_signed(Duration::seconds(180)) {
+            Some(result) => result.format("%a, %d %b %Y %H:%M:%S GMT%z"),
+            None => now.format("%a, %d %b %Y %H:%M:%S GMT%z"),
+        },
+        server_cfg.server_tag
+    );
 }
 
 pub fn stream_file(request: &str, item: &Item, stream: &mut TcpStream, server_tag: &str) {
     // Generate Header
-    let mut header = String::new();
-    let mut bytes_start: usize = 0;
-    let mut bytes_end: usize = item.file_size as usize;
+    let mut header: String = String::new();
+    let mut bytes_start: u64 = 0;
+    let mut bytes_end: u64 = item.file_size;
 
     match request.to_lowercase().find("range: bytes=") {
         Some(position) => {
@@ -75,21 +74,21 @@ pub fn stream_file(request: &str, item: &Item, stream: &mut TcpStream, server_ta
                 Some(position) => {
                     if position == 0 {
                         bytes_start = 0;
-                        bytes_end = bytes[1..].parse::<usize>().unwrap();
+                        bytes_end = bytes[1..].parse::<u64>().unwrap();
                     } else if position == bytes.len() - 1 {
-                        bytes_start = bytes[..position].parse::<usize>().unwrap();
-                        bytes_end = item.file_size as usize;
+                        bytes_start = bytes[..position].parse::<u64>().unwrap();
+                        bytes_end = item.file_size;
                     } else {
-                        bytes_start = bytes[..position].parse::<usize>().unwrap();
-                        bytes_end = bytes[position..].parse::<usize>().unwrap();
+                        bytes_start = bytes[..position].parse::<u64>().unwrap();
+                        bytes_end = bytes[position..].parse::<u64>().unwrap();
                     }
                 }
                 None => {
-                    bytes_start = bytes.parse::<usize>().unwrap();
+                    bytes_start = bytes.parse::<u64>().unwrap();
                 }
             }
 
-            header = String::from("HTTP/1.1 206 Partial Content\r\n");
+            header.push_str("HTTP/1.1 206 Partial Content\r\n");
             header.push_str("Content-Type: ");
             header.push_str(&item.get_mime_type());
             header.push_str("\r\n");
@@ -109,7 +108,7 @@ pub fn stream_file(request: &str, item: &Item, stream: &mut TcpStream, server_ta
 
         }
         None => {
-            header = String::from("HTTP/1.1 200 OK\r\n");
+            header.push_str("HTTP/1.1 200 OK\r\n");
             header.push_str("Content-Type: ");
             header.push_str(&item.get_mime_type());
             header.push_str("\r\n");
@@ -131,13 +130,12 @@ pub fn stream_file(request: &str, item: &Item, stream: &mut TcpStream, server_ta
     // Open File
     let mut file = File::open(&item.file_path).unwrap();
     let mut buffer = [0; 65536];
-    let mut readed: usize = 0;
-    let mut transferred: usize = 0;
+    let mut transferred: u64 = 0;
 
     file.seek(SeekFrom::Start(bytes_start as u64)).unwrap();
 
     loop {
-        readed = match file.read(&mut buffer) {
+        let readed: usize = match file.read(&mut buffer) {
             Ok(read) => read,
             Err(_) => 0,
         };
@@ -157,7 +155,7 @@ pub fn stream_file(request: &str, item: &Item, stream: &mut TcpStream, server_ta
         }
 
 
-        transferred += readed;
+        transferred += readed as u64;
 
         if transferred >= bytes_end {
             break;
@@ -169,16 +167,16 @@ pub fn stream_file(request: &str, item: &Item, stream: &mut TcpStream, server_ta
 
 pub fn send_file(request: &str, path: &str, stream: &mut TcpStream, server_tag: &str, mime: &str) {
     // Generate Header
-    let metadata = fs::metadata(path);
-    let file_size: usize = match metadata {
-        Ok(some) => some.len() as usize,
+    let metadata = metadata(path);
+    let file_size: u64 = match metadata {
+        Ok(some) => some.len(),
         Err(_) => {
             return;
         }
     };
     let mut header = String::new();
-    let mut bytes_start: usize = 0;
-    let mut bytes_end: usize = file_size;
+    let mut bytes_start: u64 = 0;
+    let mut bytes_end: u64 = file_size;
 
     match request.to_lowercase().find("range: bytes=") {
         Some(position) => {
@@ -189,21 +187,21 @@ pub fn send_file(request: &str, path: &str, stream: &mut TcpStream, server_tag: 
                 Some(position) => {
                     if position == 0 {
                         bytes_start = 0;
-                        bytes_end = bytes[1..].parse::<usize>().unwrap();
+                        bytes_end = bytes[1..].parse::<u64>().unwrap();
                     } else if position == bytes.len() - 1 {
-                        bytes_start = bytes[..position].parse::<usize>().unwrap();
+                        bytes_start = bytes[..position].parse::<u64>().unwrap();
                         bytes_end = file_size;
                     } else {
-                        bytes_start = bytes[..position].parse::<usize>().unwrap();
-                        bytes_end = bytes[position..].parse::<usize>().unwrap();
+                        bytes_start = bytes[..position].parse::<u64>().unwrap();
+                        bytes_end = bytes[position..].parse::<u64>().unwrap();
                     }
                 }
                 None => {
-                    bytes_start = bytes.parse::<usize>().unwrap();
+                    bytes_start = bytes.parse::<u64>().unwrap();
                 }
             }
 
-            header = String::from("HTTP/1.1 206 Partial Content\r\n");
+            header.push_str("HTTP/1.1 206 Partial Content\r\n");
             header.push_str("Content-Type: ");
             header.push_str(mime);
             header.push_str("\r\n");
@@ -223,7 +221,7 @@ pub fn send_file(request: &str, path: &str, stream: &mut TcpStream, server_tag: 
 
         }
         None => {
-            header = String::from("HTTP/1.1 200 OK\r\n");
+            header.push_str("HTTP/1.1 200 OK\r\n");
             header.push_str("Content-Type: ");
             header.push_str(mime);
             header.push_str("\r\n");
@@ -245,13 +243,12 @@ pub fn send_file(request: &str, path: &str, stream: &mut TcpStream, server_tag: 
     // Open File
     let mut file = File::open(path).unwrap();
     let mut buffer = [0; 65536];
-    let mut readed: usize = 0;
-    let mut transferred: usize = 0;
+    let mut transferred: u64 = 0;
 
     file.seek(SeekFrom::Start(bytes_start as u64)).unwrap();
 
     loop {
-        readed = match file.read(&mut buffer) {
+        let readed: usize = match file.read(&mut buffer) {
             Ok(read) => read,
             Err(_) => 0,
         };
@@ -271,7 +268,7 @@ pub fn send_file(request: &str, path: &str, stream: &mut TcpStream, server_tag: 
         }
 
 
-        transferred += readed;
+        transferred += readed as u64;
 
         if transferred >= bytes_end {
             break;
