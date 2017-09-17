@@ -105,9 +105,21 @@ impl MediaServer {
                         .parse::<u64>()
                         .unwrap();
 
-                    let item = db_manager.lock().unwrap().get_item_direct(id).unwrap();
+                    let item = match db_manager.lock().unwrap().get_item_direct(id) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            http::send_error(http::Status::NotFound404, &svr_cfg, &mut stream);
+                            return;
+                        }
+                    };
 
-                    http::stream_file(&content, &item, &mut stream, &svr_cfg.server_tag);
+                    http::send_file(
+                        &content,
+                        &item.file_path,
+                        &mut stream,
+                        &svr_cfg,
+                        &item.get_mime_type(),
+                    );
 
                     return;
                 } else if content.find("/files/images/icon.png").is_some() {
@@ -115,7 +127,7 @@ impl MediaServer {
                         &content,
                         "/var/lib/slms/icon.png",
                         &mut stream,
-                        &svr_cfg.server_tag,
+                        &svr_cfg,
                         "image/png",
                     );
 

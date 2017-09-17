@@ -1,31 +1,45 @@
 use std::io::prelude::*;
 use std::net::TcpStream;
-use std::fs::{metadata, File};
 use std::io::SeekFrom;
-use chrono::Local;
-use chrono::Duration;
+use std::fs::{metadata, File};
+use chrono::{Local, Duration};
 
 use configuration::ServerConfiguration;
-use media::Item;
 
+/// # HTTP Status
+///
+/// Enumeration that Provides the HTTP Status Codes
 pub enum Status {
     Ok200,
+    BadRequest400,
     NotFound404,
-    PartialContent206,
+    RangeNotSatisfiable416,
     InternalServerError500,
 }
 
 impl Status {
+    /// Returns the Statusline as String from the Enumeration Value
     pub fn get(&self) -> String {
         match self {
             &Status::Ok200 => String::from("200 OK"),
+            &Status::BadRequest400 => String::from("400 Bad Request"),
             &Status::NotFound404 => String::from("404 Not Found"),
-            &Status::PartialContent206 => String::from("206 Partial Content"),
+            &Status::RangeNotSatisfiable416 => String::from("416 Range Not Satisfiable"),
             &Status::InternalServerError500 => String::from("500 Internal Server Error"),
         }
     }
 }
 
+/// Generates a HTTP Header with the given Values and
+/// returns it as String.
+///
+/// # Arguments
+///
+/// * `content_size` - Size of the Content in Bytes
+/// * `mime` - Mime Type of the Content
+/// * `keep_alive` - Kepp the Connection alive or close it
+/// * `server_cfg` - Reference to the Server Configuration
+/// * `status` - HTTP Status Line as enumeration
 pub fn generate_header(
     content_size: usize,
     mime: &str,
@@ -59,203 +73,209 @@ pub fn generate_header(
     );
 }
 
-pub fn stream_file(request: &str, item: &Item, stream: &mut TcpStream, server_tag: &str) {
-    // Generate Header
-    let mut header: String = String::new();
-    let mut bytes_start: u64 = 0;
-    let mut bytes_end: u64 = item.file_size;
-
-    match request.to_lowercase().find("range: bytes=") {
-        Some(position) => {
-            let mut bytes: String = request[(position + 13)..].to_string();
-            bytes = bytes[..(bytes.find("\r\n").unwrap())].to_string();
-
-            match bytes.find("-") {
-                Some(position) => {
-                    if position == 0 {
-                        bytes_start = 0;
-                        bytes_end = bytes[1..].parse::<u64>().unwrap();
-                    } else if position == bytes.len() - 1 {
-                        bytes_start = bytes[..position].parse::<u64>().unwrap();
-                        bytes_end = item.file_size;
-                    } else {
-                        bytes_start = bytes[..position].parse::<u64>().unwrap();
-                        bytes_end = bytes[position..].parse::<u64>().unwrap();
-                    }
-                }
-                None => {
-                    bytes_start = bytes.parse::<u64>().unwrap();
-                }
-            }
-
-            header.push_str("HTTP/1.1 206 Partial Content\r\n");
-            header.push_str("Content-Type: ");
-            header.push_str(&item.get_mime_type());
-            header.push_str("\r\n");
-            header.push_str("Content-Range: bytes ");
-            header.push_str(&bytes_start.to_string());
-            header.push_str("-");
-            header.push_str(&bytes_end.to_string());
-            header.push_str("/");
-            header.push_str(&item.file_size.to_string());
-            header.push_str("\r\n");
-            header.push_str("Accept-Ranges: bytes\r\nConnection: close\r\nContentFeatures.DLNA.ORG: DLNA.ORG_OP=11;DLNA.ORG_CI=0\r\nTransferMode.DLNA.ORG: Streaming\r\nServer: ");
-            header.push_str(server_tag);
-            header.push_str("\r\n");
-            header.push_str("Content-Length: ");
-            header.push_str(&(bytes_end - bytes_start).to_string());
-            header.push_str("\r\n\r\n");
-
-        }
-        None => {
-            header.push_str("HTTP/1.1 200 OK\r\n");
-            header.push_str("Content-Type: ");
-            header.push_str(&item.get_mime_type());
-            header.push_str("\r\n");
-            header.push_str("File-Size: ");
-            header.push_str(&item.file_size.to_string());
-            header.push_str("\r\n");
-            header.push_str("Accept-Ranges: bytes\r\nConnection: close\r\nContentFeatures.DLNA.ORG: DLNA.ORG_OP=11;DLNA.ORG_CI=0\r\nTransferMode.DLNA.ORG: Streaming\r\nServer: ");
-            header.push_str(server_tag);
-            header.push_str("\r\n");
-            header.push_str("Content-Length: ");
-            header.push_str(&item.file_size.to_string());
-            header.push_str("\r\n\r\n");
-        }
+/// Sends the given Error Code to the Stream.
+/// No Content, Header only.
+///
+/// # Arguments
+///
+/// * `status` - HTTP Status Code as enumeration
+/// * `server_cfg` - Reference to the Server Configuration
+/// * `stream` - TcpStream so send the Header to
+pub fn send_error(status: Status, server_cfg: &ServerConfiguration, stream: &mut TcpStream) {
+    match stream.write(
+        generate_header(0, "text/html", false, server_cfg, status).as_bytes(),
+    ) {
+        Ok(_) => stream.flush().unwrap_or(()),
+        Err(_) => {}
     }
-
-    // Send Header
-    stream.write(header.as_bytes()).unwrap();
-
-    // Open File
-    let mut file = File::open(&item.file_path).unwrap();
-    let mut buffer = [0; 65536];
-    let mut transferred: u64 = 0;
-
-    file.seek(SeekFrom::Start(bytes_start as u64)).unwrap();
-
-    loop {
-        let readed: usize = match file.read(&mut buffer) {
-            Ok(read) => read,
-            Err(_) => 0,
-        };
-
-        if readed == 0 {
-            break;
-        }
-        match stream.write(&buffer[..readed]) {
-            Ok(written) => {
-                if written != readed {
-                    break;
-                }
-            }
-            Err(_) => {
-                break;
-            }
-        }
-
-
-        transferred += readed as u64;
-
-        if transferred >= bytes_end {
-            break;
-        }
-    }
-
-    stream.flush().unwrap();
 }
 
-pub fn send_file(request: &str, path: &str, stream: &mut TcpStream, server_tag: &str, mime: &str) {
+/// Sends the given File to the remote Host supporting Byte Ranges.
+/// If something goes wrong it will return immeditly.
+///
+/// # Arguments
+///
+/// * `request` - The original incoming Request (Http Header)
+/// * `path` - Path to the File to serve
+/// * `stream` - TcpStream to write to
+/// * `server_cfg` - Reference to the Server Configuration to use
+/// * `mime` - Mime Type to use
+pub fn send_file(
+    request: &str,
+    path: &str,
+    stream: &mut TcpStream,
+    server_cfg: &ServerConfiguration,
+    mime: &str,
+) {
     // Generate Header
     let metadata = metadata(path);
     let file_size: u64 = match metadata {
         Ok(some) => some.len(),
         Err(_) => {
+            send_error(Status::InternalServerError500, server_cfg, stream);
             return;
         }
     };
-    let mut header = String::new();
+    let mut header: String = String::new();
     let mut bytes_start: u64 = 0;
     let mut bytes_end: u64 = file_size;
 
+    // Calculate the Byte offsets if requested
     match request.to_lowercase().find("range: bytes=") {
         Some(position) => {
-            let mut bytes: String = request[(position + 13)..].to_string();
-            bytes = bytes[..(bytes.find("\r\n").unwrap())].to_string();
 
+            // Make sure the Requests Line is complete -> Send Error if not
+            if position + 13 >= request.len() {
+
+                send_error(Status::BadRequest400, server_cfg, stream);
+                return;
+            }
+
+            // Extract the bytes Request -> Send Error if something fails here
+            let mut bytes: String = request[(position + 13)..].to_string();
+            bytes = bytes[..(match bytes.find("\r\n") {
+                                 Some(position) => position,
+                                 None => {
+                                     send_error(Status::BadRequest400, server_cfg, stream);
+                                     return;
+                                 }
+                             })].to_string();
+
+            // Handle possibilities ("start-end" "-end" "start-" "start")
             match bytes.find("-") {
                 Some(position) => {
                     if position == 0 {
                         bytes_start = 0;
-                        bytes_end = bytes[1..].parse::<u64>().unwrap();
+                        bytes_end = match bytes[1..].parse::<u64>() {
+                            Ok(value) => value,
+                            Err(_) => {
+                                send_error(Status::BadRequest400, server_cfg, stream);
+                                return;
+                            }
+                        }
                     } else if position == bytes.len() - 1 {
-                        bytes_start = bytes[..position].parse::<u64>().unwrap();
+                        bytes_start = match bytes[..position].parse::<u64>() {
+                            Ok(value) => value,
+                            Err(_) => {
+                                send_error(Status::BadRequest400, server_cfg, stream);
+                                return;
+                            }
+                        };
                         bytes_end = file_size;
                     } else {
-                        bytes_start = bytes[..position].parse::<u64>().unwrap();
-                        bytes_end = bytes[position..].parse::<u64>().unwrap();
+                        bytes_start = match bytes[..position].parse::<u64>() {
+                            Ok(value) => value,
+                            Err(_) => {
+                                send_error(Status::BadRequest400, server_cfg, stream);
+                                return;
+                            }
+                        };
+
+                        bytes_end = match bytes[position..].parse::<u64>() {
+                            Ok(value) => value,
+                            Err(_) => {
+                                send_error(Status::BadRequest400, server_cfg, stream);
+                                return;
+                            }
+                        }
                     }
                 }
                 None => {
-                    bytes_start = bytes.parse::<u64>().unwrap();
+                    bytes_start = match bytes.parse::<u64>() {
+                        Ok(value) => value,
+                        Err(_) => {
+                            send_error(Status::BadRequest400, server_cfg, stream);
+                            return;
+                        }
+                    }
                 }
             }
 
-            header.push_str("HTTP/1.1 206 Partial Content\r\n");
-            header.push_str("Content-Type: ");
-            header.push_str(mime);
-            header.push_str("\r\n");
-            header.push_str("Content-Range: bytes ");
-            header.push_str(&bytes_start.to_string());
-            header.push_str("-");
-            header.push_str(&bytes_end.to_string());
-            header.push_str("/");
-            header.push_str(&file_size.to_string());
-            header.push_str("\r\n");
-            header.push_str("Accept-Ranges: bytes\r\nConnection: close\r\nContentFeatures.DLNA.ORG: DLNA.ORG_OP=11;DLNA.ORG_CI=0\r\nTransferMode.DLNA.ORG: Streaming\r\nServer: ");
-            header.push_str(server_tag);
-            header.push_str("\r\n");
-            header.push_str("Content-Length: ");
-            header.push_str(&(bytes_end - bytes_start).to_string());
-            header.push_str("\r\n\r\n");
+            // Check Boundarys are in File
+            if bytes_start > bytes_end || bytes_end > file_size {
+                send_error(Status::RangeNotSatisfiable416, server_cfg, stream);
+                return;
+            }
 
+            // Create Partial Content Header
+            header.push_str(&format!(
+                "HTTP/1.1 206 Partial Content\r\n\
+            	 Content-Type: {}\r\n\
+            	 Content-Range: bytes {}-{}/{}\r\n\
+            	 Accept-Ranges: bytes\r\n\
+            	 Connection: close\r\n\
+            	 ContentFeatures.DLNA.ORG: DLNA.ORG_OP=11;DLNA.ORG_CI=0\r\n\
+            	 TransferMode.DLNA.ORG: Streaming\r\n\
+            	 Server: {}\r\n\
+            	 Content-Length: {}\r\n\r\n",
+                mime,
+                bytes_start,
+                bytes_end,
+                file_size,
+                server_cfg.server_tag,
+                bytes_end - bytes_start
+            ));
         }
         None => {
-            header.push_str("HTTP/1.1 200 OK\r\n");
-            header.push_str("Content-Type: ");
-            header.push_str(mime);
-            header.push_str("\r\n");
-            header.push_str("File-Size: ");
-            header.push_str(&file_size.to_string());
-            header.push_str("\r\n");
-            header.push_str("Accept-Ranges: bytes\r\nConnection: close\r\nContentFeatures.DLNA.ORG: DLNA.ORG_OP=11;DLNA.ORG_CI=0\r\nTransferMode.DLNA.ORG: Streaming\r\nServer: ");
-            header.push_str(server_tag);
-            header.push_str("\r\n");
-            header.push_str("Content-Length: ");
-            header.push_str(&file_size.to_string());
-            header.push_str("\r\n\r\n");
+            // Create default Header
+            header.push_str(&format!(
+                "HTTP/1.1 200 OK\r\n\
+	             Content-Type: {}\r\n\
+	             File-Size: {}\r\n\
+	             Accept-Ranges: bytes\r\n\
+            	 Connection: close\r\n\
+            	 ContentFeatures.DLNA.ORG: DLNA.ORG_OP=11;DLNA.ORG_CI=0\r\n\
+            	 TransferMode.DLNA.ORG: Streaming\r\n\
+            	 Server: {}\r\n\
+            	 Content-Length: {}\r\n\r\n",
+                mime,
+                file_size,
+                server_cfg.server_tag,
+                file_size
+            ));
         }
     }
 
     // Send Header
-    stream.write(header.as_bytes()).unwrap();
+    match stream.write(header.as_bytes()) {
+        Ok(_) => {}
+        Err(_) => {
+            return;
+        }
+    }
 
     // Open File
-    let mut file = File::open(path).unwrap();
+    let mut file = match File::open(path) {
+        Ok(value) => value,
+        Err(_) => {
+            send_error(Status::InternalServerError500, server_cfg, stream);
+            return;
+        }
+    };
+
     let mut buffer = [0; 65536];
     let mut transferred: u64 = 0;
 
-    file.seek(SeekFrom::Start(bytes_start as u64)).unwrap();
+    // Seek to requested Position
+    match file.seek(SeekFrom::Start(bytes_start)) {
+        Ok(_) => {}
+        Err(_) => {
+            send_error(Status::InternalServerError500, server_cfg, stream);
+            return;
+        }
+    }
 
+    // Send the File Contents
     loop {
+        // Read from File
         let readed: usize = match file.read(&mut buffer) {
             Ok(read) => read,
-            Err(_) => 0,
+            Err(_) => {
+                break;
+            }
         };
 
-        if readed == 0 {
-            break;
-        }
+        // Write to Stream
         match stream.write(&buffer[..readed]) {
             Ok(written) => {
                 if written != readed {
@@ -267,7 +287,7 @@ pub fn send_file(request: &str, path: &str, stream: &mut TcpStream, server_tag: 
             }
         }
 
-
+        // Abort if everything was sent
         transferred += readed as u64;
 
         if transferred >= bytes_end {
@@ -275,5 +295,9 @@ pub fn send_file(request: &str, path: &str, stream: &mut TcpStream, server_tag: 
         }
     }
 
-    stream.flush().unwrap();
+    // Make sure everything is transferred
+    match stream.flush() {
+        Ok(_) => {}
+        Err(_) => {}
+    }
 }
