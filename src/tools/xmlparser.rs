@@ -40,7 +40,7 @@ impl XMLEntry {
         entry.value = self.value.clone();
 
         for attr in &self.attributes {
-            entry.attributes.push(attr.copy());
+            entry.attributes.push(attr.clone());
         }
 
         for sub in &self.sub_tags {

@@ -75,8 +75,15 @@ impl MediaServer {
             .unwrap();
 
         // Bring up the SSDP Server
-        let ssdp_server: SSDPServer = SSDPServer::new(&cfg_handler.server_configuration);
-        ssdp_server.discover();
+        let ssdp_server: SSDPServer = match SSDPServer::new(&cfg_handler.server_configuration) {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+
+        match ssdp_server.discover() {
+            Ok(_) => {}
+            Err(_) => return,
+        }
 
         println!("WAITING FOR CONNECTIONS");
 
@@ -159,6 +166,9 @@ impl MediaServer {
                 }
             });
         }
+
+        // Clean Up
+        ssdp_server.byebye();
     }
 
     fn print_welcome() {
