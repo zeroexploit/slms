@@ -15,27 +15,47 @@ use configuration::ServerConfiguration;
 /// - Implement "Subscribe" and handle Events
 /// - Generate ProtocollInfo from actual MimeTypes available in Media Database
 /// - Actually keep track of connections
-/// - ERROR HANDLING!
 pub struct ConnectionManager<'a> {
     server_cfg: &'a ServerConfiguration,
 }
 
 impl<'a> ConnectionManager<'a> {
     /// Creates a new ConnectionManager using the given Server Configuration
+    ///
+    /// # Arguments
+    ///
+    /// * `server_cfg` - Reference to the Servers Configuration
     pub fn new(server_cfg: &'a ServerConfiguration) -> ConnectionManager<'a> {
         ConnectionManager { server_cfg }
     }
 
+    /// Sends data to the given TCP Stream
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - Message to be send
+    /// * `stream` - TCP Stream to send the data to
     pub fn send_data(&self, response: &str, stream: &mut TcpStream) -> bool {
-        stream.write(response.as_bytes()).unwrap();
-        stream.flush().unwrap();
 
-        true
+        match stream.write(response.as_bytes()) {
+            Ok(_) => {
+                match stream.flush() {
+                    Ok(_) => true,
+                    Err(_) => false,
+                }
+            }
+            Err(_) => false,
+        }
     }
 
+    /// Uses the Tcp Stream to collect the whole Request including Header
+    /// and Content.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream` - Stream to read Data from
     pub fn handle_connection(&self, stream: &mut TcpStream) -> String {
-        let mut buffer = [0; 4096];
-        let mut readed: usize = 0;
+        let mut buffer = [0; 65515];
         let mut content_size: usize = 0;
         let mut content_size_expected: usize = 0;
         let mut content: String = String::new();
@@ -43,14 +63,17 @@ impl<'a> ConnectionManager<'a> {
         let mut header_content: String = String::new();
 
         loop {
-            match stream.read(&mut buffer) {
-                Ok(bytes) => readed = bytes,
+            let readed = match stream.read(&mut buffer) {
+                Ok(bytes) => bytes,
                 Err(_) => {
                     break;
                 }
-            }
+            };
 
-            let tmp_content: String = String::from_utf8(buffer[..readed].to_vec()).unwrap();
+            let tmp_content: String = match String::from_utf8(buffer[..readed].to_vec()) {
+                Ok(value) => value,
+                Err(_) => break,
+            };
 
             if header_received {
                 content.push_str(&tmp_content);
@@ -65,11 +88,19 @@ impl<'a> ConnectionManager<'a> {
                 match content.find("\r\n\r\n") {
                     Some(position) => {
                         // Get Content Length
-                        let mut header = content[0..position].to_lowercase();
-                        header_content = content[0..(position + 4)].to_string();
+                        if position + 4 >= content.len() {
+                            break;
+                        }
+
+                        let mut header = content[..position].to_lowercase();
+                        header_content = content[..(position + 4)].to_string();
 
                         match header.find("content-length:") {
                             Some(content_pos) => {
+                                if content_pos + 16 >= header.len() {
+                                    break;
+                                }
+
                                 header = header[(content_pos + 16)..].to_string();
                                 match header.find("\r\n") {
                                     Some(inner_pos) => {
@@ -78,7 +109,10 @@ impl<'a> ConnectionManager<'a> {
                                     _ => {}
                                 }
 
-                                content_size_expected = header.trim().parse::<usize>().unwrap();
+                                content_size_expected = match header.trim().parse::<usize>() {
+                                    Ok(value) => value,
+                                    Err(_) => break,
+                                };
                             }
                             _ => {
                                 break;
@@ -113,6 +147,10 @@ impl<'a> ConnectionManager<'a> {
     /// Takes a Request and returns the corresponding XML Answer Content.
     /// Content only. No Headers!
     /// Returns an empty String Response could not be generated
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - Request from the Renderer to process
     pub fn handle_request(&self, request: &str) -> String {
         if &request[..31] == "GET /connection/description.xml" {
             return self.get_device_description();
@@ -167,29 +205,19 @@ impl<'a> ConnectionManager<'a> {
 
     /// Generates the Device Description Response using the Server Configuration
     fn get_device_description(&self) -> String {
-        let mut dev_desc = String::new();
-
-
-        dev_desc.push_str( 
-           "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
             <root xmlns:dlna=\"urn:schemas-dlna-org:device-1-0\" xmlns=\"urn:schemas-upnp-org:device-1-0\">
                 <specVersion>
                         <major>1</major>
                         <minor>0</minor>
                 </specVersion>
-                <URLBase>http://");
-        dev_desc.push_str(&self.server_cfg.server_ip);
-        dev_desc.push_str(":");
-        dev_desc.push_str(&self.server_cfg.server_port.to_string());
-        dev_desc.push_str("/</URLBase>
+                <URLBase>http://{}:{}/</URLBase>
                 <device>
 	                <dlna:X_DLNADOC xmlns:dlna=\"urn:schemas-dlna-org:device-1-0\">DMS-1.50</dlna:X_DLNADOC>
 	                <dlna:X_DLNADOC xmlns:dlna=\"urn:schemas-dlna-org:device-1-0\">M-DMS-1.50</dlna:X_DLNADOC>
                     <deviceType>urn:schemas-upnp-org:device:MediaServer:1</deviceType>
-                    <friendlyName>");
-        dev_desc.push_str(&self.server_cfg.server_name);
-        dev_desc.push_str(
-            "</friendlyName>
+                    <friendlyName>{}</friendlyName>
                        <manufacturer>Jörn Roddelkopf</manufacturer>
                         <manufacturerURL>https://github.com/zeroexploit/</manufacturerURL>
                         <modelDescription>Simpler Linux Media Server</modelDescription>
@@ -198,11 +226,7 @@ impl<'a> ConnectionManager<'a> {
                         <modelURL>https://github.com/zeroexploit/slms/</modelURL>
                         <serialNumber>13371337</serialNumber>
                         <UPC>SLMS1337</UPC>
-                        <UDN>uuid:",
-        );
-        dev_desc.push_str(&self.server_cfg.server_uuid);
-        dev_desc.push_str(
-            "</UDN>
+                        <UDN>uuid:{}</UDN>
                         <iconList>
                                 <icon>
                                         <mimetype>image/png</mimetype>
@@ -212,12 +236,7 @@ impl<'a> ConnectionManager<'a> {
                                         <url>/files/images/icon.png</url>
                                 </icon>
                         </iconList>
-                        <presentationURL>http://",
-        );
-        dev_desc.push_str(&self.server_cfg.server_ip);
-        dev_desc.push_str(":");
-        dev_desc.push_str(&self.server_cfg.server_port.to_string());
-        dev_desc.push_str("/console/console.html</presentationURL>
+                        <presentationURL>http://{}:{}/console/console.html</presentationURL>
                         <serviceList>
                                 <service>
                                         <serviceType>urn:schemas-upnp-org:service:ContentDirectory:1</serviceType>
@@ -235,9 +254,14 @@ impl<'a> ConnectionManager<'a> {
                                 </service>
                         </serviceList>
                 </device>
-            </root>");
-
-        dev_desc
+            </root>",
+            self.server_cfg.server_ip,
+            self.server_cfg.server_port,
+            self.server_cfg.server_name,
+            self.server_cfg.server_uuid,
+            self.server_cfg.server_ip,
+            self.server_cfg.server_port
+        )
     }
 
     /// Get the Connection Manager Service Description
