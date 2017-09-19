@@ -57,21 +57,15 @@ impl Folder {
         }
     }
 
+    /// Generates the UPnP XML Description of the Folder, ready to be sent to the Renderer Device
     pub fn generate_upnp_xml(&self) -> String {
-        let mut xml: String = String::new();
-
-        xml.push_str("&lt;container id=\"");
-        xml.push_str(&self.id.to_string());
-        xml.push_str("\" childCount=\"");
-        xml.push_str(&self.element_count.to_string());
-        xml.push_str("\" parentID=\"");
-        xml.push_str(&self.parent_id.to_string());
-        xml.push_str("\" restricted=\"1\"&gt;&lt;dc:title&gt;");
-        xml.push_str(&self.title);
-        xml.push_str("&lt;/dc:title&gt;&lt;dc:date&gt;");
-        xml.push_str(&self.last_modified.to_string());
-        xml.push_str("&lt;/dc:date&gt;&lt;upnp:storageMedium&gt;HDD&lt;/upnp:storageMedium&gt;&lt;upnp:class&gt;object.container.storageFolder&lt;/upnp:class&gt;&lt;/container&gt;");
-
-        xml
+        format!(
+            "&lt;container id=\"{}\" childCount=\"{}\" parentID=\"{}\" restricted=\"1\"&gt;&lt;dc:title&gt;{}&lt;/dc:title&gt;&lt;dc:date&gt;{}&lt;/dc:date&gt;&lt;upnp:storageMedium&gt;HDD&lt;/upnp:storageMedium&gt;&lt;upnp:class&gt;object.container.storageFolder&lt;/upnp:class&gt;&lt;/container&gt;",
+            self.id,
+            self.element_count,
+            self.parent_id,
+            self.title,
+            self.last_modified
+        )
     }
 }

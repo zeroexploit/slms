@@ -1,6 +1,6 @@
 use std::io::prelude::*;
 use std::net::TcpStream;
-use std::io::SeekFrom;
+use std::io::{SeekFrom, ErrorKind};
 use std::fs::{metadata, File};
 use chrono::{Local, Duration};
 
@@ -12,6 +12,7 @@ use configuration::ServerConfiguration;
 pub enum Status {
     Ok200,
     BadRequest400,
+    Forbidden403,
     NotFound404,
     RangeNotSatisfiable416,
     InternalServerError500,
@@ -23,6 +24,7 @@ impl Status {
         match self {
             &Status::Ok200 => String::from("200 OK"),
             &Status::BadRequest400 => String::from("400 Bad Request"),
+            &Status::Forbidden403 => String::from("403 Forbidden"),
             &Status::NotFound404 => String::from("404 Not Found"),
             &Status::RangeNotSatisfiable416 => String::from("416 Range Not Satisfiable"),
             &Status::InternalServerError500 => String::from("500 Internal Server Error"),
@@ -109,13 +111,21 @@ pub fn send_file(
 ) {
     // Generate Header
     let metadata = metadata(path);
-    let file_size: u64 = match metadata {
-        Ok(some) => some.len(),
-        Err(_) => {
-            send_error(Status::InternalServerError500, server_cfg, stream);
-            return;
-        }
-    };
+    let file_size: u64 =
+        match metadata {
+            Ok(some) => some.len(),
+            Err(err) => {
+                match err.kind() {
+                    ErrorKind::NotFound => send_error(Status::NotFound404, server_cfg, stream),
+                    ErrorKind::PermissionDenied => {
+                        send_error(Status::Forbidden403, server_cfg, stream)
+                    } 
+                    _ => send_error(Status::InternalServerError500, server_cfg, stream),
+                }
+
+                return;
+            }
+        };
     let mut header: String = String::new();
     let mut bytes_start: u64 = 0;
     let mut bytes_end: u64 = file_size;
@@ -244,16 +254,24 @@ pub fn send_file(
         }
     }
 
-    // Open File
-    let mut file = match File::open(path) {
-        Ok(value) => value,
-        Err(_) => {
-            send_error(Status::InternalServerError500, server_cfg, stream);
-            return;
-        }
-    };
+    // Open File and create Buffer
+    let mut file =
+        match File::open(path) {
+            Ok(value) => value,
+            Err(err) => {
+                match err.kind() {
+                    ErrorKind::NotFound => send_error(Status::NotFound404, server_cfg, stream),
+                    ErrorKind::PermissionDenied => {
+                        send_error(Status::Forbidden403, server_cfg, stream)
+                    } 
+                    _ => send_error(Status::InternalServerError500, server_cfg, stream),
+                }
 
-    let mut buffer = [0; 65536];
+                return;
+            }
+        };
+
+    let mut buffer = [0; 65515];
     let mut transferred: u64 = 0;
 
     // Seek to requested Position
