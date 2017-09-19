@@ -88,7 +88,7 @@ impl<'a> ConnectionManager<'a> {
                 match content.find("\r\n\r\n") {
                     Some(position) => {
                         // Get Content Length
-                        if position + 4 >= content.len() {
+                        if position + 4 > content.len() {
                             break;
                         }
 
@@ -97,7 +97,7 @@ impl<'a> ConnectionManager<'a> {
 
                         match header.find("content-length:") {
                             Some(content_pos) => {
-                                if content_pos + 16 >= header.len() {
+                                if content_pos + 16 > header.len() {
                                     break;
                                 }
 
