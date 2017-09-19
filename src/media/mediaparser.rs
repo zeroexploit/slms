@@ -53,6 +53,7 @@ pub fn parse_file(path: &str, target: &mut Item) -> bool {
         Err(_) => return false,
     };
 
+
     // Check if  everything we need is there
     if xml_out.len() == 0 || xml_out.find("format").is_none() || xml_out.find("streams").is_none() {
         return false;
@@ -97,7 +98,6 @@ pub fn parse_file(path: &str, target: &mut Item) -> bool {
             }
             _ => (),
         }
-
     }
 
     // Get the Format Tags
@@ -271,7 +271,6 @@ pub fn parse_file(path: &str, target: &mut Item) -> bool {
             return false;
         }
     };
-
     // Add Filename and Extension
     let f_path = Path::new(path);
     target.meta_data.file_extension = match f_path.extension() {

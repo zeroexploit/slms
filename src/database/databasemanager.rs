@@ -161,6 +161,11 @@ impl DatabaseManager {
                 };
             }
 
+            // Skip Folders that are hidden
+            if &folder.title[0..1] == "." {
+                return;
+            }
+
             folder.path = path.to_string();
             folder.last_modified = DatabaseManager::get_last_modified(path);
             folder.element_count = DatabaseManager::get_elements(path);
@@ -217,6 +222,7 @@ impl DatabaseManager {
                                 self.media_item.push(item);
                             } else {
                                 // Do something
+                                println!("Can not parse: {}", ele_str);
                             }
                         }
                     }
