@@ -2,6 +2,7 @@
 extern crate lazy_static;
 extern crate daemonize;
 extern crate chrono;
+extern crate pnet;
 
 mod media;
 mod tools;

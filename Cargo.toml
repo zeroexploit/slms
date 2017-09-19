@@ -7,3 +7,4 @@ authors = ["Jörn Roddelkopf"]
 chrono = "*"
 lazy_static = "*"
 daemonize="*"
+pnet="*"

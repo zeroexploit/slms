@@ -41,8 +41,6 @@ impl MediaServer {
             return;
         }
 
-        cfg_handler.server_configuration.server_ip = String::from("192.168.1.139");
-
         // Prepare Logging
         let mut logger: Logger = Logger::new(
             &cfg_handler.server_configuration.log_path,

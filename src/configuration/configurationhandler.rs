@@ -2,6 +2,7 @@ use std::io::BufReader;
 use std::io::BufRead;
 use std::fs::File;
 use std::fs;
+use pnet::datalink;
 use super::serverconfiguration::ServerConfiguration;
 use super::rendererconfiguration::RendererConfiguration;
 use super::rendererconfiguration::SourceTargetMap;
@@ -91,7 +92,23 @@ impl ConfigurationHandler {
                 "serverport" => {
                     self.server_configuration.server_port = value.parse::<u16>().unwrap()
                 }
-                "serverinterface" => self.server_configuration.server_interface = value.to_string(),
+                "serverinterface" => {
+                    self.server_configuration.server_interface = value.to_string();
+                    for iface in datalink::interfaces() {
+                        if iface.name == value {
+                            self.server_configuration.server_ip = match iface.ips.get(0) {
+                                Some(value) => {
+                                    let ip = value.to_string();
+                                    ip[..match ip.find("/") {
+                                           Some(position) => position,
+                                           None => ip.len(),
+                                       }].to_string()
+                                }
+                                None => String::from("0.0.0.0"),
+                            };
+                        }
+                    }
+                }
                 "folders" => {
                     self.server_configuration.share_dirs =
                         value.split(";").map(|s| s.to_string()).collect()
@@ -145,6 +162,25 @@ impl ConfigurationHandler {
         if self.server_configuration.thumbnail_dir.len() == 0 {
             self.server_configuration.thumbnail_dir = String::from("/var/lib/slms/thumbnails/");
             success = false;
+        }
+
+        if self.server_configuration.server_interface.len() == 0 {
+            let faces = datalink::interfaces();
+            let iface = match faces.get(0) {
+                Some(value) => value,
+                None => return false,
+
+            };
+            self.server_configuration.server_ip = match iface.ips.get(0) {
+                Some(value) => {
+                    let ip = value.to_string();
+                    ip[..match ip.find("/") {
+                           Some(position) => position,
+                           None => ip.len(),
+                       }].to_string()
+                }
+                None => String::from("0.0.0.0"),
+            };
         }
 
         // Parse all Renderers
