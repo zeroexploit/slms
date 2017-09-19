@@ -1,19 +1,14 @@
-use media::item::Item;
 use std::process::Command;
-use tools::XMLParser;
-use tools::XMLEntry;
-use media::Stream;
-use media::StreamType;
-use media::MediaType;
-use std::fs;
-use std::time;
+use std::{fs, time};
 use std::path::Path;
 
-// TO-DO: Use FFmpeg libarys instead of external Tool -> Can not be compiled right now
+use media::item::Item;
+use tools::{XMLParser, XMLEntry};
+use media::{Stream, StreamType, MediaType};
 
 /// # MediaParser
 ///
-/// This is an empty Structure providing all functionality
+/// This is an moule designed to providing all functionality
 /// to open Media Files, read in their Meta Information and
 /// create Item structures out of it and make them available
 /// to the Media Server.
@@ -34,7 +29,7 @@ use std::path::Path;
 /// * `target` - Referenze to a Item Structure to hold the Data
 pub fn parse_file(path: &str, target: &mut Item) -> bool {
 
-    let output = Command::new("ffprobe")
+    let output = match Command::new("ffprobe")
         .args(
             &[
                 "-v",
@@ -47,11 +42,16 @@ pub fn parse_file(path: &str, target: &mut Item) -> bool {
                 path,
             ],
         )
-        .output()
-        .expect("failed to execute process");
+        .output() {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
 
     // Convert Output to String
-    let xml_out: String = String::from_utf8(output.stdout).expect("Can not convert!");
+    let xml_out: String = match String::from_utf8(output.stdout) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
 
     // Check if  everything we need is there
     if xml_out.len() == 0 || xml_out.find("format").is_none() || xml_out.find("streams").is_none() {
@@ -66,35 +66,52 @@ pub fn parse_file(path: &str, target: &mut Item) -> bool {
     // Parse the Format
     let format_entry: XMLEntry = XMLParser::find_tag(&xml_parser.xml_entries, "format");
 
-    target.format_container.add_file_extension(&path.split(".")
-        .last()
-        .unwrap()
-        .to_lowercase());
+    // Set File Extension
+    let file_extension: String = match path.split(".").last() {
+        Some(value) => value.to_lowercase(),
+        None => return false,
+    };
 
+    target.format_container.add_file_extension(&file_extension);
+
+    // Get the Format Attributes
     for attr in format_entry.attributes {
         match attr.name.as_ref() {
             "format_name" => target.format_container.name = attr.value,
             "duration" => {
-                target.duration = convert_duration(&attr.value[0..attr.value.find(" ").unwrap()]);
+                let duration = attr.value[..match attr.value.find(" ") {
+                                              Some(value) => value,
+                                              None => continue,
+                                          }].to_string();
+                target.duration = convert_duration(&duration);
             }
             "size" => {
-                target.file_size = attr.value[0..attr.value.find(" ").unwrap()]
-                    .to_string()
-                    .parse::<u64>()
-                    .unwrap();
+                let file_size = attr.value[..match attr.value.find(" ") {
+                                               Some(value) => value,
+                                               None => continue,
+                                           }].to_string();
+                target.file_size = match file_size.parse::<u64>() {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                };
             }
             _ => (),
         }
 
     }
 
+    // Get the Format Tags
     for sub_tag in format_entry.sub_tags {
         if sub_tag.tag == "tag" {
-            insert_meta_data(
-                &sub_tag.attributes.get(0).unwrap().value,
-                &sub_tag.attributes.get(1).unwrap().value,
-                target,
-            );
+            let tag_name = match sub_tag.attributes.get(0) {
+                Some(value) => value,
+                None => continue,
+            };
+            let tag_value = match sub_tag.attributes.get(1) {
+                Some(value) => value,
+                None => continue,
+            };
+            insert_meta_data(&tag_name.value, &tag_value.value, target);
         }
     }
 
@@ -110,7 +127,12 @@ pub fn parse_file(path: &str, target: &mut Item) -> bool {
         for attr in stream_entry.attributes {
 
             match attr.name.as_ref() {
-                "index" => stream.index = attr.value.parse::<u8>().unwrap(),
+                "index" => {
+                    stream.index = match attr.value.parse::<u8>() {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    }
+                }
                 "codec_name" => stream.codec_name = attr.value,
                 "codec_type" => {
                     match attr.value.as_ref() {
@@ -128,21 +150,49 @@ pub fn parse_file(path: &str, target: &mut Item) -> bool {
                         _ => stream.stream_type = StreamType::UNKNOWN,
                     }
                 }
-                "width" => stream.frame_width = attr.value.parse::<u16>().unwrap(),
-                "height" => stream.frame_height = attr.value.parse::<u16>().unwrap(),
-                "bits_per_sample" => stream.bit_depth = attr.value.parse::<u8>().unwrap(),
-                "sample_rate" => {
-                    stream.sample_rate = attr.value[0..attr.value.find(" ").unwrap()]
-                        .to_string()
-                        .parse::<u32>()
-                        .unwrap()
+                "width" => {
+                    stream.frame_width = match attr.value.parse::<u16>() {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    }
                 }
-                "channels" => stream.audio_channels = attr.value.parse::<u8>().unwrap(),
+                "height" => {
+                    stream.frame_height = match attr.value.parse::<u16>() {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    }
+                }
+                "bits_per_sample" => {
+                    stream.bit_depth = match attr.value.parse::<u8>() {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    }
+                }
+                "sample_rate" => {
+                    stream.sample_rate = match attr.value[..match attr.value.find(" ") {
+                                                                Some(value) => value,
+                                                                None => continue,
+                                                            }].to_string()
+                        .parse::<u32>() {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    }
+                }
+                "channels" => {
+                    stream.audio_channels = match attr.value.parse::<u8>() {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    }
+                }
                 "bit_rate" => {
-                    stream.bitrate = attr.value[0..attr.value.find(" ").unwrap()]
-                        .to_string()
-                        .parse::<u64>()
-                        .unwrap()
+                    stream.bitrate = match attr.value[..match attr.value.find(" ") {
+                                                            Some(value) => value,
+                                                            None => continue,
+                                                        }].to_string()
+                        .parse::<u64>() {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    }
                 }
                 _ => (),
             }
@@ -174,8 +224,16 @@ pub fn parse_file(path: &str, target: &mut Item) -> bool {
                     }
                 } 
                 "tag" => {
-                    if sub_stream.attributes.get(0).unwrap().value == "language" {
-                        stream.language = sub_stream.attributes.get(1).unwrap().value.clone();
+                    let tag = match sub_stream.attributes.get(0) {
+                        Some(value) => value,
+                        None => continue,
+                    };
+                    if tag.value == "language" {
+                        let tag_value = match sub_stream.attributes.get(1) {
+                            Some(value) => value,
+                            None => continue,
+                        };
+                        stream.language = tag_value.value.clone();
                     }
                 }
                 _ => (),
@@ -216,8 +274,24 @@ pub fn parse_file(path: &str, target: &mut Item) -> bool {
 
     // Add Filename and Extension
     let f_path = Path::new(path);
-    target.meta_data.file_extension = f_path.extension().unwrap().to_str().unwrap().to_string();
-    target.meta_data.file_name = f_path.file_name().unwrap().to_str().unwrap().to_string();
+    target.meta_data.file_extension = match f_path.extension() {
+        Some(value) => {
+            match value.to_str() {
+                Some(i_value) => i_value.to_string(),
+                None => return false,
+            }
+        }
+        None => return false,
+    };
+    target.meta_data.file_name = match f_path.file_name() {
+        Some(value) => {
+            match value.to_str() {
+                Some(i_value) => i_value.to_string(),
+                None => return false,
+            }
+        }
+        None => return false,
+    };
     target.meta_data.file_name =
         target.meta_data.file_name[..(target.meta_data.file_name.len() -
                                           target.meta_data.file_extension.len() -
@@ -247,6 +321,12 @@ pub fn parse_file(path: &str, target: &mut Item) -> bool {
 
 /// Takes the ffmpeg meta tags and inserts them into the MetaData structure
 /// every Item holds.
+///
+/// # Arguments
+///
+/// * `name` - Name of the Meta Tag
+/// * `value` - Value of the Meta Tag
+/// * `target` - Item to store the Value in
 fn insert_meta_data(name: &str, value: &str, target: &mut Item) {
     match name {
         "album" => target.meta_data.album = value.to_string(),
@@ -268,8 +348,15 @@ fn insert_meta_data(name: &str, value: &str, target: &mut Item) {
 /// Takes the Medias Duration in seconds and converts it to
 /// hh:mm:ss.ms format. That format than is later used
 /// for UPnP.
+///
+/// # Arguments
+///
+/// * `duration` - Duration as Second String in sssss.ms format
 fn convert_duration(duration: &str) -> String {
-    let seconds: f64 = duration.parse::<f64>().unwrap();
+    let seconds: f64 = match duration.parse::<f64>() {
+        Ok(value) => value,
+        Err(_) => 0.0,
+    };
     let hours: u32 = (seconds / (60.0 * 60.0)) as u32;
     let minutes: u32 = ((seconds / 60.0) - (hours as f64 * 60.0)) as u32;
     let seconds_dif: u32 = (seconds as u32 - (hours * 60 * 60) - (minutes * 60)) as u32;
@@ -295,7 +382,13 @@ fn convert_duration(duration: &str) -> String {
     }
 
     result.push_str(&seconds_dif.to_string());
-    result.push_str(&duration[duration.find(".").unwrap()..].to_string()[..3]);
+
+    let ms = match duration.find(".") {
+        Some(value) => duration[value..].to_string(),
+        None => ".00".to_string(),
+    };
+
+    result.push_str(&ms[..3]);
 
     result
 }
