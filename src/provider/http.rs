@@ -293,6 +293,10 @@ pub fn send_file(
             }
         };
 
+        if readed == 0 {
+            break;
+        }
+
         // Write to Stream
         match stream.write(&buffer[..readed]) {
             Ok(written) => {

@@ -2,7 +2,10 @@ use std::io::BufReader;
 use std::io::BufRead;
 use std::fs::File;
 use std::fs;
+use uuid::Uuid;
 use pnet::datalink;
+use sys_info::{os_release, os_type};
+
 use super::serverconfiguration::ServerConfiguration;
 use super::rendererconfiguration::RendererConfiguration;
 use super::rendererconfiguration::SourceTargetMap;
@@ -14,14 +17,11 @@ use super::rendererconfiguration::SourceTargetMap;
 /// parts of the Software where these are required.
 ///
 /// # TO-DO
-/// - If there is no Interface given -> Determine the Default Network Interface instead of setting it to eth0
 /// - Determine what Path to use when no share Folder is given -> Security Risk to share whole File System
 /// - Add Checks to determine if Configuration is set AND USEABLE / AVAILABLE -> Check Path / File Access, Interfaces, etc.
 /// - Handle File System Errors -> Not Found, Permission Denied...
 /// - Add check for Renderers Configuration
 /// - Replace all Unwraps with error checks
-/// - Determine the Servers Ip Address
-/// - Generate Unique UUID
 pub struct ConfigurationHandler {
     pub server_configuration: ServerConfiguration, // Server Configurations
     pub renderer_configurations: Vec<RendererConfiguration>, // List of Renderer Configurations
@@ -94,8 +94,10 @@ impl ConfigurationHandler {
                 }
                 "serverinterface" => {
                     self.server_configuration.server_interface = value.to_string();
+                    let mut found = false;
                     for iface in datalink::interfaces() {
                         if iface.name == value {
+                            found = true;
                             self.server_configuration.server_ip = match iface.ips.get(0) {
                                 Some(value) => {
                                     let ip = value.to_string();
@@ -104,9 +106,14 @@ impl ConfigurationHandler {
                                            None => ip.len(),
                                        }].to_string()
                                 }
-                                None => String::from("0.0.0.0"),
+                                None => String::new(),
                             };
                         }
+                    }
+
+                    if !found {
+                        self.server_configuration.server_interface = String::new();
+                        self.server_configuration.server_ip = String::new();
                     }
                 }
                 "folders" => {
@@ -164,7 +171,9 @@ impl ConfigurationHandler {
             success = false;
         }
 
-        if self.server_configuration.server_interface.len() == 0 {
+        if self.server_configuration.server_interface.len() == 0 ||
+            self.server_configuration.server_ip.len() == 0
+        {
             let faces = datalink::interfaces();
             let iface = match faces.get(0) {
                 Some(value) => value,
@@ -179,7 +188,7 @@ impl ConfigurationHandler {
                            None => ip.len(),
                        }].to_string()
                 }
-                None => String::from("0.0.0.0"),
+                None => return false,
             };
         }
 
@@ -200,6 +209,19 @@ impl ConfigurationHandler {
                 }
             }
         }
+
+        //  Generate the Servers Tag
+        self.server_configuration.server_tag =
+            format!(
+                "{}/{}, SLMS/{}, UPnP/1.0, DLNADOC/1.50",
+                os_type().unwrap_or("UNKNOWN".to_string()),
+                os_release().unwrap_or("UNKNOWN".to_string()),
+                option_env!("CARGO_PKG_VERSION").unwrap_or("UNKNOWN")
+            );
+
+        // Generate the Servers UUID
+        self.server_configuration.server_uuid = Uuid::new_v4().to_string();
+
 
         success
     }

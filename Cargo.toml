@@ -8,3 +8,5 @@ chrono = "*"
 lazy_static = "*"
 daemonize="*"
 pnet="*"
+sys-info = "*"
+uuid={version = "*", features = ["v4"]}
