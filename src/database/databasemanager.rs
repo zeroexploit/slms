@@ -162,7 +162,7 @@ impl DatabaseManager {
             }
 
             // Skip Folders that are hidden
-            if &folder.title[0..1] == "." {
+            if &folder.title[..1] == "." {
                 return;
             }
 
@@ -217,9 +217,12 @@ impl DatabaseManager {
                             let mut item: Item = Item::new();
                             if mediaparser::parse_file(ele_str, &mut item) {
                                 item.id = self.get_next_id();
-                                item.parent_id = id;
 
-                                self.media_item.push(item);
+                                item.parent_id = id;
+                                // Skip hidden Files
+                                if &item.meta_data.title[..1] != "." {
+                                    self.media_item.push(item);
+                                }
                             } else {
                                 // Do something
                                 println!("Can not parse: {}", ele_str);

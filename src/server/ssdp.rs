@@ -10,9 +10,6 @@ use configuration::ServerConfiguration;
 /// Network.
 /// Spawns an individual Thread for Operation in Order
 /// to not block Main Execution.
-///
-/// # TO-DO
-/// - Bind to configurated Interface
 pub struct SSDPServer<'a> {
     server_cfg: &'a ServerConfiguration,
     socket: UdpSocket,
@@ -28,7 +25,7 @@ impl<'a> SSDPServer<'a> {
     pub fn new(server_cfg: &ServerConfiguration) -> Result<SSDPServer, ()> {
         let ssdp = SSDPServer {
             server_cfg,
-            socket: match UdpSocket::bind(("0.0.0.0", 1900)) {
+            socket: match UdpSocket::bind((server_cfg.server_ip.as_str(), 1900)) {
                 Ok(value) => value,
                 Err(_) => return Err(()),
             },
@@ -244,8 +241,6 @@ impl<'a> SSDPServer<'a> {
         );
 
         loop {
-            println!("SENDING!");
-
             match socket.send_to(
                 SSDPServer::get_notify_package(
                     "alive",
@@ -455,22 +450,16 @@ impl<'a> SSDPServer<'a> {
         server_port: &str,
         server_tag: &str,
     ) -> String {
+
         format!(
-        	"NOTIFY * HTTP/1.1\r\n\
-        	SERVER: {}\r\n\
-        	CACHE-CONTROL: max-age=1800\r\n\
-        	LOCATION: http://{}:{}/connection/{}\r\n\
-        	NTS: ssdp: {}\r\n\
-        	NT: {}\r\n\
-        	USN: {}\r\n\
-        	HOST: 239.255.255.250:1900\r\n\r\n",
-        server_tag,
-        server_ip,
-        server_port,
-        location,
-        nts,
-        nt,
-        usn,
+            "NOTIFY * HTTP/1.1\r\nSERVER: {}\r\nCACHE-CONTROL: max-age=1800\r\nLOCATION: http://{}:{}/connection/{}\r\nNTS: ssdp:{}\r\nNT: {}\r\nUSN: {}\r\nHOST: 239.255.255.250:1900\r\n\r\n",
+            server_tag,
+            server_ip,
+            server_port,
+            location,
+            nts,
+            nt,
+            usn
         )
     }
 
@@ -493,19 +482,13 @@ impl<'a> SSDPServer<'a> {
         server_tag: &str,
     ) -> String {
         format!(
-        "HTTP/1.1 200 OK\r\n\
-        SERVER: {}\r\n\
-        CACHE-CONTROL: max-age=1800\r\n\
-        LOCATION: http://{}:{}/connection/{}\r\n\
-        ST: {}\r\n\
-        USN: {}\r\n\
-        Content-Length: 0\r\n\
-        EXT:\r\n\r\n",
-        server_tag,
-        server_ip,
-        server_port,
-        location,
-        st,
-        usn,)
+            "HTTP/1.1 200 OK\r\nSERVER: {}\r\nCACHE-CONTROL: max-age=1800\r\nLOCATION: http://{}:{}/connection/{}\r\nST: {}\r\nUSN: {}\r\nContent-Length: 0\r\nEXT:\r\n\r\n",
+            server_tag,
+            server_ip,
+            server_port,
+            location,
+            st,
+            usn
+        )
     }
 }

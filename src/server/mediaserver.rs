@@ -13,6 +13,7 @@ use provider::http;
 
 
 lazy_static! { static ref DB_MANAGER: Mutex<DatabaseManager> = Mutex::new(DatabaseManager::new()); }
+lazy_static! { static ref LOGGER: Mutex<Logger> = Mutex::new(Logger::new()); }
 
 pub struct MediaServer {}
 
@@ -40,7 +41,7 @@ impl MediaServer {
         }
 
         // Prepare Logging
-        let logger: Logger = Logger::new(
+        LOGGER.lock().unwrap().set(
             &cfg_handler.server_configuration.log_path,
             cfg_handler.server_configuration.log_level,
         );
@@ -59,7 +60,7 @@ impl MediaServer {
         }
 
         // Ouput to Log File
-        logger.write_log(
+        LOGGER.lock().unwrap().write_log(
             &format!(
                 "Simple Linux Media Server Version: {}",
                 option_env!("CARGO_PKG_VERSION").unwrap_or("")
@@ -67,7 +68,10 @@ impl MediaServer {
             LogLevel::INFORMATION,
         );
 
-        logger.write_log("Loading Database...", LogLevel::INFORMATION);
+        LOGGER.lock().unwrap().write_log(
+            "Loading Database...",
+            LogLevel::INFORMATION,
+        );
 
         // Bring up the Media Database
         match DB_MANAGER.lock() {
@@ -78,7 +82,10 @@ impl MediaServer {
                 )
             }
             Err(_) => {
-                logger.write_log("Unable to get Database Mutex - db.load()!", LogLevel::ERROR);
+                LOGGER.lock().unwrap().write_log(
+                    "Unable to get Database Mutex - db.load()!",
+                    LogLevel::ERROR,
+                );
                 return;
             }
         }
@@ -86,7 +93,7 @@ impl MediaServer {
         match DB_MANAGER.lock() {
             Ok(mut value) => value.boot_up(),
             Err(_) => {
-                logger.write_log(
+                LOGGER.lock().unwrap().write_log(
                     "Unable to get Database Mutex - db.boot_up()!",
                     LogLevel::ERROR,
                 );
@@ -94,7 +101,10 @@ impl MediaServer {
             }
         }
 
-        logger.write_log("Database ready.", LogLevel::INFORMATION);
+        LOGGER.lock().unwrap().write_log(
+            "Database ready.",
+            LogLevel::INFORMATION,
+        );
 
         // Prepare the Sockets
         let listener = match TcpListener::bind((
@@ -103,7 +113,7 @@ impl MediaServer {
         )) {
             Ok(value) => value,
             Err(_) => {
-                logger.write_log(
+                LOGGER.lock().unwrap().write_log(
                     &format!(
                         "Unable to bind TCP Socket to {}:{}!",
                         cfg_handler.server_configuration.server_ip,
@@ -115,13 +125,19 @@ impl MediaServer {
             }
         };
 
-        logger.write_log("Running SSDP Server...", LogLevel::INFORMATION);
+        LOGGER.lock().unwrap().write_log(
+            "Running SSDP Server...",
+            LogLevel::INFORMATION,
+        );
 
         // Bring up the SSDP Server
         let ssdp_server: SSDPServer = match SSDPServer::new(&cfg_handler.server_configuration) {
             Ok(value) => value,
             Err(_) => {
-                logger.write_log("Unable to create SSDP Server!", LogLevel::ERROR);
+                LOGGER.lock().unwrap().write_log(
+                    "Unable to create SSDP Server!",
+                    LogLevel::ERROR,
+                );
                 return;
             }
         };
@@ -129,26 +145,35 @@ impl MediaServer {
         match ssdp_server.discover() {
             Ok(_) => {}
             Err(_) => {
-                logger.write_log("Unable to announce Server!", LogLevel::ERROR);
+                LOGGER.lock().unwrap().write_log(
+                    "Unable to announce Server!",
+                    LogLevel::ERROR,
+                );
                 return;
             }
         }
 
-        logger.write_log("Waiting for incoming Connections...", LogLevel::INFORMATION);
+        LOGGER.lock().unwrap().write_log(
+            "Waiting for incoming Connections...",
+            LogLevel::INFORMATION,
+        );
 
         // Process Incoming Connections in new Threads
         for stream in listener.incoming() {
             let mut stream = match stream {
                 Ok(value) => value,
                 Err(_) => {
-                    logger.write_log("Unable to establish Connection!", LogLevel::ERROR);
+                    LOGGER.lock().unwrap().write_log(
+                        "Unable to establish Connection!",
+                        LogLevel::ERROR,
+                    );
                     break;
                 }
             };
             let tcfg_handler = cfg_handler.clone();
             let svr_cfg = cfg_handler.server_configuration.clone();
 
-            logger.write_log(
+            LOGGER.lock().unwrap().write_log(
                 &format!(
                     "New Connection from: {}",
                     match stream.peer_addr() {
@@ -164,7 +189,10 @@ impl MediaServer {
             });
         }
 
-        logger.write_log("Something went wrong. Shutting down!", LogLevel::ERROR);
+        LOGGER.lock().unwrap().write_log(
+            "Something went wrong. Shutting down!",
+            LogLevel::ERROR,
+        );
 
         // Clean Up
         ssdp_server.byebye();
@@ -182,7 +210,17 @@ impl MediaServer {
         if content.find("/connection/").is_some() {
             xml = con_manager.handle_request(&content);
         } else if content.find("/content/").is_some() {
-            let db = DB_MANAGER.lock().unwrap();
+            let db = match DB_MANAGER.lock() {
+                Ok(value) => value,
+                Err(_) => {
+                    LOGGER.lock().unwrap().write_log(
+                        "Unable to mutex Database!",
+                        LogLevel::ERROR,
+                    );
+                    http::send_error(http::Status::InternalServerError500, &svr_cfg, stream);
+                    return;
+                }
+            };
             let mut con_dir: ContentDirectory = ContentDirectory::new(&tcfg_handler, &db);
             xml = con_dir.handle_request(&content);
         } else if content.find("/stream/").is_some() {
