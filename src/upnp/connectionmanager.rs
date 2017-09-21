@@ -37,7 +37,7 @@ impl<'a> ConnectionManager<'a> {
     /// * `stream` - TCP Stream to send the data to
     pub fn send_data(&self, response: &str, stream: &mut TcpStream) -> bool {
 
-        match stream.write(response.as_bytes()) {
+        match stream.write_all(response.as_bytes()) {
             Ok(_) => {
                 match stream.flush() {
                     Ok(_) => true,
@@ -69,6 +69,10 @@ impl<'a> ConnectionManager<'a> {
                     break;
                 }
             };
+
+            if readed == 0 {
+                break;
+            }
 
             let tmp_content: String = match String::from_utf8(buffer[..readed].to_vec()) {
                 Ok(value) => value,
@@ -114,7 +118,8 @@ impl<'a> ConnectionManager<'a> {
                                     Err(_) => break,
                                 };
                             }
-                            _ => {
+                            None => {
+                                content = String::new();
                                 break;
                             }
                         }

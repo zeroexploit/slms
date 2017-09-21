@@ -235,14 +235,16 @@ impl<'a> SSDPServer<'a> {
     /// * `port` - Port the Server listens on
     /// * `tag` - The Servers HTTP Server Header Tag
     fn send_notify_packages(socket: UdpSocket, uuid: &str, ip: &str, port: &str, tag: &str) {
+        let maddr = SocketAddr::new(
+            match "239.255.255.250".parse::<IpAddr>() {
+                Ok(value) => value,
+                Err(_) => return,
+            },
+            1900,
+        );
+
         loop {
-            let maddr = SocketAddr::new(
-                match "239.255.255.250".parse::<IpAddr>() {
-                    Ok(value) => value,
-                    Err(_) => return,
-                },
-                1900,
-            );
+            println!("SENDING!");
 
             match socket.send_to(
                 SSDPServer::get_notify_package(
@@ -297,7 +299,7 @@ impl<'a> SSDPServer<'a> {
                     "alive",
                     "urn:schemas-upnp-org:service:ContentDirectory:1",
                     &format!(
-                        "USN: uuid:{}::urn:schemas-upnp-org:service:ContentDirectory:1",
+                        "uuid:{}::urn:schemas-upnp-org:service:ContentDirectory:1",
                         uuid
                     ),
                     "description.xml",
@@ -316,7 +318,7 @@ impl<'a> SSDPServer<'a> {
                     "alive",
                     "urn:schemas-upnp-org:service:ConnectionManager:1",
                     &format!(
-                        "USN: uuid:{}::urn:schemas-upnp-org:service:ConnectionManager:1",
+                        "uuid:{}::urn:schemas-upnp-org:service:ConnectionManager:1",
                         uuid
                     ),
                     "description.xml",
@@ -356,7 +358,11 @@ impl<'a> SSDPServer<'a> {
     ) {
         let mut message = String::new();
 
-        if request.find("ssdp:all").is_some() {
+        if request.find("ssdp:all").is_some() ||
+            request
+                .find("urn:schemas-upnp-org:device:MediaServer")
+                .is_some()
+        {
             message = SSDPServer::get_search_response_package(
                 "urn:schemas-upnp-org:device:MediaServer:1",
                 &format!("uuid:{}::urn:schemas-upnp-org:device:MediaServer:1", uuid),
@@ -374,18 +380,6 @@ impl<'a> SSDPServer<'a> {
                 port,
                 tag,
             );
-        } else if request
-                   .find("urn:schemas-upnp-org:device:MediaServer")
-                   .is_some()
-        {
-            message = SSDPServer::get_search_response_package(
-                "urn:schemas-upnp-org:device:MediaServer:1",
-                &format!("uuid:{}::urn:schemas-upnp-org:device:MediaServer:1", uuid),
-                "description.xml",
-                ip,
-                port,
-                tag,
-            )
         } else if request
                    .find("urn:schemas-upnp-org:service:ContentDirectory")
                    .is_some()

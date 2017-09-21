@@ -133,7 +133,6 @@ pub fn send_file(
     // Calculate the Byte offsets if requested
     match request.to_lowercase().find("range: bytes=") {
         Some(position) => {
-
             // Make sure the Requests Line is complete -> Send Error if not
             if position + 13 >= request.len() {
 
@@ -197,23 +196,21 @@ pub fn send_file(
                             send_error(Status::BadRequest400, server_cfg, stream);
                             return;
                         }
-                    }
+                    };
                 }
             }
-
             // Check Boundarys are in File
             if bytes_start > bytes_end || bytes_end > file_size {
                 send_error(Status::RangeNotSatisfiable416, server_cfg, stream);
                 return;
             }
-
             // Create Partial Content Header
             header.push_str(&format!(
                 "HTTP/1.1 206 Partial Content\r\n\
             	 Content-Type: {}\r\n\
             	 Content-Range: bytes {}-{}/{}\r\n\
             	 Accept-Ranges: bytes\r\n\
-            	 Connection: close\r\n\
+            	 Connection: Close\r\n\
             	 ContentFeatures.DLNA.ORG: DLNA.ORG_OP=11;DLNA.ORG_CI=0\r\n\
             	 TransferMode.DLNA.ORG: Streaming\r\n\
             	 Server: {}\r\n\
@@ -233,7 +230,7 @@ pub fn send_file(
 	             Content-Type: {}\r\n\
 	             File-Size: {}\r\n\
 	             Accept-Ranges: bytes\r\n\
-            	 Connection: close\r\n\
+            	 Connection: Close\r\n\
             	 ContentFeatures.DLNA.ORG: DLNA.ORG_OP=11;DLNA.ORG_CI=0\r\n\
             	 TransferMode.DLNA.ORG: Streaming\r\n\
             	 Server: {}\r\n\
@@ -245,15 +242,13 @@ pub fn send_file(
             ));
         }
     }
-
     // Send Header
-    match stream.write(header.as_bytes()) {
+    match stream.write_all(header.as_bytes()) {
         Ok(_) => {}
         Err(_) => {
             return;
         }
     }
-
     // Open File and create Buffer
     let mut file =
         match File::open(path) {
@@ -270,7 +265,6 @@ pub fn send_file(
                 return;
             }
         };
-
     let mut buffer = [0; 65515];
     let mut transferred: u64 = 0;
 
@@ -282,7 +276,6 @@ pub fn send_file(
             return;
         }
     }
-
     // Send the File Contents
     loop {
         // Read from File
@@ -298,12 +291,8 @@ pub fn send_file(
         }
 
         // Write to Stream
-        match stream.write(&buffer[..readed]) {
-            Ok(written) => {
-                if written != readed {
-                    break;
-                }
-            }
+        match stream.write_all(&buffer[..readed]) {
+            Ok(_) => {}
             Err(_) => {
                 break;
             }
@@ -315,6 +304,7 @@ pub fn send_file(
         if transferred >= bytes_end {
             break;
         }
+
     }
 
     // Make sure everything is transferred

@@ -289,7 +289,7 @@ impl MetaData {
 
         for language in &self.languages {
             xml.push_str(&format!(
-                "&lt;dc_language&gt;{}&lt;/dc:language&gt;",
+                "&lt;dc:language&gt;{}&lt;/dc:language&gt;",
                 language
             ));
         }
@@ -302,10 +302,7 @@ impl MetaData {
         }
 
         for copyright in &self.copyrights {
-            xml.push_str(&format!(
-                "&lt;dc:rights&gt;{}&lt;/dc:rightse&gt;",
-                copyright
-            ));
+            xml.push_str(&format!("&lt;dc:rights&gt;{}&lt;/dc:rights&gt;", copyright));
         }
 
         xml
@@ -444,6 +441,9 @@ impl Item {
         // Add MediaType specifig Values
         match self.media_type {
             MediaType::PICTURE => {
+                xml.push_str(&format!("resolution=\"{}\" ", self.get_resolution()));
+            }
+            MediaType::AUDIO => {
                 xml.push_str(&format!(
                     "bitrate=\"{}\" duration=\"{}\" nrAudioChannels=\"{}\" sampleFrequency=\"{}\" ",
                     self.get_bitrate(),
@@ -451,13 +451,16 @@ impl Item {
                     self.get_audio_channels(),
                     self.get_sample_rate()
                 ));
-
-                match self.media_type {
-                    MediaType::VIDEO => {
-                        xml.push_str(&format!("resolution=\"{}\" ", self.get_resolution()));
-                    }
-                    _ => {}
-                }
+            }
+            MediaType::VIDEO => {
+                xml.push_str(&format!(
+                    "resolution=\"{}\" bitrate=\"{}\" duration=\"{}\" nrAudioChannels=\"{}\" sampleFrequency=\"{}\" ",
+                    self.get_resolution(),
+                    self.get_bitrate(),
+                    self.duration,
+                    self.get_audio_channels(),
+                    self.get_sample_rate()
+                ));
             }
             _ => {}
         }
@@ -514,7 +517,7 @@ impl Item {
     /// - Match with the requested Stream instead of default one
     fn get_audio_channels(&self) -> u8 {
         for stream in &self.media_tracks {
-            if stream.audio_channels != 0 && stream.is_default {
+            if stream.audio_channels != 0 {
                 return stream.audio_channels;
             }
         }
@@ -528,7 +531,7 @@ impl Item {
     /// - Match with the requested Stream instead of default one
     fn get_sample_rate(&self) -> u32 {
         for stream in &self.media_tracks {
-            if stream.sample_rate != 0 && stream.is_default {
+            if stream.sample_rate != 0 {
                 return stream.sample_rate;
             }
         }
@@ -542,7 +545,7 @@ impl Item {
     /// - Match with the requested Stream instead default one
     fn get_resolution(&self) -> String {
         for stream in &self.media_tracks {
-            if stream.frame_width != 0 && stream.frame_height != 0 && stream.is_default {
+            if stream.frame_width != 0 && stream.frame_height != 0 {
                 return format!("{}x{}", stream.frame_width, stream.frame_height.to_string());
             }
         }
