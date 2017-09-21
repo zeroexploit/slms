@@ -1,6 +1,4 @@
-extern crate chrono;
-
-use self::chrono::Local;
+use chrono::Local;
 use std::fs::OpenOptions;
 use std::io::prelude::*;
 
@@ -28,9 +26,16 @@ pub struct Logger {
 }
 
 impl Logger {
+    pub fn new() -> Logger {
+        Logger {
+            logfile_path: String::from("/var/log/slms.log"),
+            log_level: LogLevel::INFORMATION,
+        }
+    }
+
     /// Create a new Instance of the Logger with the given
     /// LogLevel and Path to the File to create.
-    pub fn new(log_path: &str, log_level: u8) -> Logger {
+    pub fn set(&mut self, log_path: &str, log_level: u8) {
 
         let l_level = match log_level {
             0 => LogLevel::OFF,
@@ -40,10 +45,8 @@ impl Logger {
             _ => LogLevel::VERBOSE,
         };
 
-        Logger {
-            logfile_path: log_path.to_string(),
-            log_level: l_level,
-        }
+        self.logfile_path = log_path.to_string();
+        self.log_level = l_level;
     }
 
     /// Writes a new line containing the message to the log file.

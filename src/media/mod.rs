@@ -13,5 +13,5 @@ pub use self::item::Item;
 pub use self::item::MetaData;
 pub use self::item::MediaType;
 
-mod mediaparser;
-pub use self::mediaparser::MediaParser;
+pub mod mediaparser;
+pub use self::mediaparser::*;

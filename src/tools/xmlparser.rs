@@ -6,6 +6,7 @@ use super::namevaluepair::NameValuePair;
 /// including the Tag (name) itself, a Value if no Sub-Tags
 /// are present, a list of Attributes as Name-Value-Pairs
 /// and a list of Sub-Tags each of the same XMLEntry struct type.
+#[derive(Clone)]
 pub struct XMLEntry {
     pub tag: String,
     pub value: String,
@@ -22,32 +23,6 @@ impl XMLEntry {
             attributes: Vec::new(),
             sub_tags: Vec::new(),
         }
-    }
-
-    /// Copys this XMLEntry and creates a new one.
-    /// Both Entries can than be used independantly.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// let other_xml: XMLEntry = XMLEntry::new();
-    /// let new_xml: XMLEntry = other_xml.copy();
-    /// ```
-    pub fn copy(&self) -> XMLEntry {
-        let mut entry: XMLEntry = XMLEntry::new();
-
-        entry.tag = self.tag.clone();
-        entry.value = self.value.clone();
-
-        for attr in &self.attributes {
-            entry.attributes.push(attr.copy());
-        }
-
-        for sub in &self.sub_tags {
-            entry.sub_tags.push(sub.copy());
-        }
-
-        return entry;
     }
 }
 
@@ -189,6 +164,10 @@ impl XMLParser {
             let mut result: XMLEntry = XMLEntry::new();
 
             // If this is the End Tag return the Result
+            if start_position + 1 > content.len() - 1 || start_position + 2 > content.len() - 1 {
+                break;
+            }
+
             if &content[(start_position + 1)..(start_position + 2)] == "/" {
                 return result_list;
             }
@@ -213,8 +192,14 @@ impl XMLParser {
             let vec: Vec<&str> = sub_content.split(" ").collect();
 
             match vec.get(0) {
-                Some(text) => result.tag = text[1..].to_string(),
-                None => (),
+                Some(text) => {
+                    if text.len() > 1 {
+                        result.tag = text[1..].to_string()
+                    } else {
+                        break;
+                    }
+                }
+                None => break,
             }
 
             // Parse the Attributes
@@ -228,9 +213,16 @@ impl XMLParser {
                 tag_end_position -= 2;
 
                 // Get the Sub Tags
+                if end_position + 1 >= content.len() || tag_end_position + 1 >= content.len() {
+                    break;
+                }
+
                 result.sub_tags = self.parse(&content[(end_position + 1)..(tag_end_position + 1)]);
 
                 if result.sub_tags.len() == 0 {
+                    if end_position >= content.len() || tag_end_position >= content.len() {
+                        break;
+                    }
                     result.value = content[end_position..tag_end_position].trim().to_string();
                 }
 
@@ -253,9 +245,8 @@ impl XMLParser {
     /// a list of Name-Value-Pairs. If there are no Attributes inside the Tag the list will
     /// be empty.
     ///
-    /// * `tag` - The Tag to get the attributes from. -- "<name att1="val1" ...(/)>
+    /// * `tag` - The Tag to get the attributes from. -- "name att1="val1" ...(/)>
     fn get_attributes(&self, tag: &mut &str) -> Vec<NameValuePair> {
-
         let mut result: Vec<NameValuePair> = Vec::new();
         let mut tmp_string: &str = tag;
 
@@ -268,9 +259,13 @@ impl XMLParser {
         // Remove the tailing ">" or "/>"
         match tmp_string.find(">") {
             Some(length) => {
-                tmp_string = &tmp_string[0..length];
+                tmp_string = &tmp_string[..length];
             }
             None => (),
+        }
+
+        if tmp_string.len() == 0 {
+            return result;
         }
 
         if &tmp_string[(tmp_string.len() - 1)..] == "/" {
@@ -280,9 +275,13 @@ impl XMLParser {
         // Remove the Tags Name
         match tmp_string.find(" ") {
             Some(length) => {
+                if length + 1 >= tmp_string.len() {
+                    return result;
+                }
+
                 tmp_string = &tmp_string[length + 1..];
             }
-            None => (),
+            None => return result,
         }
 
         // Split the Attributes
@@ -290,26 +289,23 @@ impl XMLParser {
 
         // Get the Attributes
         for tmp_part in 0..part_list.len() {
-            let mut part: String = String::new();
-            let mut name: &str = "";
-            let mut value: &str = "";
 
-            match part_list.get(tmp_part) {
-                Some(text) => part = text.to_string(),
-                None => (),
-            }
+            let part = match part_list.get(tmp_part) {
+                Some(text) => text.to_string(),
+                None => continue,
+            };
 
             let name_list: Vec<&str> = part.split(" ").collect();
 
-            match name_list.last() {
-                Some(text) => name = text,
-                None => (),
-            }
+            let name = match name_list.last() {
+                Some(text) => text.to_string(),
+                None => continue,
+            };
 
-            match part_list.get(tmp_part + 1) {
-                Some(text) => value = text,
-                None => (),
-            }
+            let mut value: &str = match part_list.get(tmp_part + 1) {
+                Some(text) => text,
+                None => continue,
+            };
 
             let mut sub_position: usize = 0;
 
@@ -395,7 +391,7 @@ impl XMLParser {
 
         for tag in tag_list {
             if tag.tag == name {
-                return tag.copy();
+                return tag.clone();
             } else {
                 entry = XMLParser::find_tag(&tag.sub_tags, name);
 

@@ -1,6 +1,10 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate daemonize;
+extern crate chrono;
+extern crate pnet;
+extern crate sys_info;
+extern crate uuid;
 
 mod media;
 mod tools;

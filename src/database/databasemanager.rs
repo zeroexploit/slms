@@ -1,22 +1,13 @@
-use media::Item;
-use media::Container;
-use media::MediaParser;
-use media::MediaType;
-use media::Stream;
-use media::StreamType;
-use media::Thumbnail;
-use super::folder::Folder;
-use tools::NameValuePair;
-use tools::XMLParser;
-use tools::XMLEntry;
 use std::fs::File;
-use std::io::Write;
-use std::io::Read;
+use std::io::{Write, Read};
 use std::path::Path;
 use std::fs;
 use std::time;
 
-// TO-DO: Add Media Container Formats once FFMpeg can be compiled
+use super::folder::Folder;
+use media::{Item, Container, MediaType, Stream, StreamType, Thumbnail, mediaparser};
+use tools::{NameValuePair, XMLParser, XMLEntry};
+
 
 /// # DatabaseManager
 ///
@@ -32,6 +23,12 @@ use std::time;
 /// while the System is running. Every action that requires
 /// any type of Media provided by SLMS should go through
 /// this structure.
+///
+/// # TO-DO
+///
+/// - Add Media Container Formats once FFMpeg can be compiled again
+/// - Dynamically update the DB if Files / Folders on the FS have changed
+/// - Allow execution even if no Database is available / XML Errors occured
 pub struct DatabaseManager {
     path: String,
     media_item: Vec<Item>,
@@ -39,20 +36,31 @@ pub struct DatabaseManager {
     share_folders: Vec<String>,
     media_formats: Vec<Container>,
     latest_id: u64,
-    parser: MediaParser,
 }
 
 impl DatabaseManager {
-    /// This function creates a new DatabaseManager Structure that holds
+    /// This function inits the DatabaseManager Structure to hold
     /// the entire Media Database and also manages it. It is required to
-    /// specifie a path where the Database should be stored (as XML File)
+    /// specify a path where the Database should be stored (as XML File)
     /// and the current media shares as well.
+    /// In Order to actually use the DB a call to boot_up() is required
+    /// after this initialization.
+    ///
+    /// # Arguments
+    ///
+    /// * `db_path` - Where to store the XML Database File
+    /// * `shares` - List of Pathes to share theough SLMS
     pub fn load(&mut self, db_path: &str, shares: Vec<String>) {
         self.path = db_path.to_string();
         self.share_folders = shares;
         self.latest_id = 1;
     }
-
+    /// This function creates a new DatabaseManager Structure that holds
+    /// the entire Media Database and also manages it. The Path to store
+    /// the Database is set to the default /var/lib/slms/db.xml Path.
+    /// Should be used for initialisation only and be followed by
+    /// a call to load(path, shares) in Order to make the DBManager
+    /// usable.
     pub fn new() -> DatabaseManager {
         DatabaseManager {
             path: String::from("/var/lib/slms/db.xml"),
@@ -61,7 +69,6 @@ impl DatabaseManager {
             share_folders: Vec::new(),
             media_formats: Vec::new(),
             latest_id: 1,
-            parser: MediaParser::new(),
         }
     }
 
@@ -81,12 +88,10 @@ impl DatabaseManager {
     pub fn boot_up(&mut self) {
 
         // Load Database from File System
-        println!("Opening Database...");
         self.load_database();
 
         // Parse all Shares and update Database
-        println!("Parsing shares...");
-        for share in self.share_folders.clone() {
+        for share in &self.share_folders.clone() {
             self.parse_folder(&share, 0);
         }
 
@@ -108,10 +113,15 @@ impl DatabaseManager {
     /// from File and for all shares, this ensures that every
     /// Media laying under the shares will be part of the
     /// Media Database.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the Folder that should be parsed
+    /// * `parent_id` - Id of the Parent Folder this one lays in
     fn parse_folder(&mut self, path: &str, parent_id: u64) {
         // If the path does not exits -> return
-        if self.does_exist(path) == false {
-            return ();
+        if path.is_empty() || self.does_exist(path) == false {
+            return;
         }
 
         let mut is_new: bool = false;
@@ -138,16 +148,24 @@ impl DatabaseManager {
             let mut folder = Folder::new();
             folder.id = self.get_next_id();
             folder.parent_id = parent_id;
+
             if &path[path.len() - 1..] == "/" {
-                folder.title = path[..path.len() - 1]
-                    .split("/")
-                    .last()
-                    .unwrap()
-                    .to_string();
+                folder.title = match path[..path.len() - 1].split("/").last() {
+                    Some(value) => value.to_string(),
+                    None => return,
+                };
             } else {
-                folder.title = path.split("/").last().unwrap().to_string();
+                folder.title = match path.split("/").last() {
+                    Some(value) => value.to_string(),
+                    None => return,
+                };
             }
-            println!("New Folder: {}", folder.title);
+
+            // Skip Folders that are hidden
+            if &folder.title[..1] == "." {
+                return;
+            }
+
             folder.path = path.to_string();
             folder.last_modified = DatabaseManager::get_last_modified(path);
             folder.element_count = DatabaseManager::get_elements(path);
@@ -156,27 +174,37 @@ impl DatabaseManager {
         }
 
         // Go through all Elements inside this Folder and add them
-        let paths = fs::read_dir(path).unwrap();
+        let paths = match fs::read_dir(path) {
+            Ok(value) => value,
+            Err(_) => return,
+        };
 
         for path in paths {
             match path {
                 Ok(element) => {
+                    let ele_path = element.path();
+                    let ele_str = match ele_path.to_str() {
+                        Some(value) => value,
+                        None => continue,
+                    };
+
                     // If this is another folder -> parse it too
                     if element.path().is_dir() {
-                        self.parse_folder(element.path().to_str().unwrap(), id);
+                        self.parse_folder(ele_str, id);
                     } else {
                         // If this is a file -> use the media parser
                         let mut is_new = false;
 
                         // Check if already existing
-                        match self.get_item_from_path(element.path().to_str().unwrap()) {
+
+                        match self.get_item_from_path(ele_str) {
                             Ok(some) => {
                                 // Check if something changed
-                                if DatabaseManager::get_last_modified(
-                                    element.path().to_str().unwrap(),
-                                ) > some.last_modified
+                                if DatabaseManager::get_last_modified(ele_str) >
+                                    some.last_modified
                                 {
-                                    is_new = true;
+                                    // Reparse the item
+                                    mediaparser::parse_file(ele_str, some);
                                 }
                             }
                             Err(_) => {
@@ -184,22 +212,20 @@ impl DatabaseManager {
                             }
                         }
 
-                        // Parse if something changed -> skip if not -> why parse if we know everything?
+                        // Parse if new and assign Ids
                         if is_new {
                             let mut item: Item = Item::new();
-                            if self.parser.parse_file(
-                                element.path().to_str().unwrap(),
-                                &mut item,
-                            )
-                            {
+                            if mediaparser::parse_file(ele_str, &mut item) {
                                 item.id = self.get_next_id();
+
                                 item.parent_id = id;
-
-                                println!("Parsed File: {}", element.path().to_str().unwrap());
-
-                                self.media_item.push(item);
+                                // Skip hidden Files
+                                if &item.meta_data.title[..1] != "." {
+                                    self.media_item.push(item);
+                                }
                             } else {
-                                println!("Unable to parse: {}", element.path().to_str().unwrap());
+                                // Do something
+                                println!("Can not parse: {}", ele_str);
                             }
                         }
                     }
@@ -214,6 +240,12 @@ impl DatabaseManager {
     /// Checks if a Folder at the given Path exists inside
     /// the Database and returns it if available or causes
     /// Err if not available.
+    /// This is important in Order to check if a given Folder
+    /// is already part of the Media Database.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the Folder to check
     fn get_folder_from_path(&mut self, path: &str) -> Result<&mut Folder, ()> {
         for folder in &mut self.media_folders {
             if folder.path == path {
@@ -227,6 +259,12 @@ impl DatabaseManager {
     /// Checks if a Item with the given Path already exits
     /// inside the Database and returns it if available.
     /// Err if not.
+    /// This is important in Order to check if a given Item
+    /// is already part of the Media Database.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the Item to check
     fn get_item_from_path(&mut self, path: &str) -> Result<&mut Item, ()> {
         for item in &mut self.media_item {
             if item.file_path == path {
@@ -237,9 +275,16 @@ impl DatabaseManager {
     }
 
     /// Returns the Number of Elements inside the given
-    /// Path.
+    /// Path. If something went wrong, 0 is returned.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the Folder to count Elements in
     fn get_elements(path: &str) -> u32 {
-        let paths = fs::read_dir(path).unwrap();
+        let paths = match fs::read_dir(path) {
+            Ok(value) => value,
+            Err(_) => return 0,
+        };
         let mut counter = 0;
 
         for path in paths {
@@ -265,6 +310,10 @@ impl DatabaseManager {
     /// it might decrease performance and should therefore
     /// only be done in non crictial situation. E.g.:
     /// Not while a user is browsing the content.
+    ///
+    /// # Arguments
+    ///
+    /// * `check_changed` - Do or do not check if Files / Folders has changed since last save
     fn save_database(&self, check_changed: bool) {
         // Create ROOT Folder
         let mut root_attr: Vec<NameValuePair> = Vec::new();
@@ -359,12 +408,13 @@ impl DatabaseManager {
 
         let mut db_file = match File::create(&self.path) {
             Ok(some) => some,
-            Err(_) => return (),
+            Err(_) => return,
         };
 
-        db_file.write(xml_parser.xml_content.as_bytes()).expect(
-            "Unable to write to Database!",
-        );
+        match db_file.write(xml_parser.xml_content.as_bytes()) {
+            Ok(_) => {}
+            Err(_) => {}
+        }
     }
 
     /// Opens the XML File containing the Media Database and parses it into the
@@ -397,12 +447,12 @@ impl DatabaseManager {
         // Open Database File
         let mut db_file = match File::open(&self.path) {
             Ok(some) => some,
-            Err(_) => return (),
+            Err(_) => return,
         };
         let mut contents = String::new();
         match db_file.read_to_string(&mut contents) {
-            Ok(_) => println!("Openend Database..."),
-            Err(_) => return (),
+            Ok(_) => {}
+            Err(_) => return,
         }
 
         let xml_parser: XMLParser = XMLParser::open(&contents);
@@ -414,9 +464,12 @@ impl DatabaseManager {
                 "root" => root_xml = entry,
                 "format" => {
                     let mut media_container: Container = Container::new();
-                    media_container.id = XMLParser::get_value_from_name(&entry.attributes, "id")
-                        .parse::<u64>()
-                        .unwrap();
+                    media_container.id =
+                        match XMLParser::get_value_from_name(&entry.attributes, "id")
+                            .parse::<u64>() {
+                            Ok(value) => value,
+                            Err(_) => continue,
+                        };
                     media_container.name =
                         XMLParser::get_value_from_name(&entry.attributes, "name");
 
@@ -452,20 +505,28 @@ impl DatabaseManager {
             if folder.tag == "folder" {
                 let mut tmp_folder: Folder = Folder::new();
                 tmp_folder.element_count =
-                    XMLParser::get_value_from_name(&folder.attributes, "count")
-                        .parse::<u32>()
-                        .unwrap();
-                tmp_folder.id = XMLParser::get_value_from_name(&folder.attributes, "id")
-                    .parse::<u64>()
-                    .unwrap();
+                    match XMLParser::get_value_from_name(&folder.attributes, "count")
+                        .parse::<u32>() {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    };
+                tmp_folder.id = match XMLParser::get_value_from_name(&folder.attributes, "id")
+                    .parse::<u64>() {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                };
                 tmp_folder.parent_id =
-                    XMLParser::get_value_from_name(&folder.attributes, "parentId")
-                        .parse::<u64>()
-                        .unwrap();
+                    match XMLParser::get_value_from_name(&folder.attributes, "parentId")
+                        .parse::<u64>() {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    };
                 tmp_folder.last_modified =
-                    XMLParser::get_value_from_name(&folder.attributes, "lastModified")
-                        .parse::<u64>()
-                        .unwrap();
+                    match XMLParser::get_value_from_name(&folder.attributes, "lastModified")
+                        .parse::<u64>() {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    };
                 tmp_folder.path = XMLParser::get_value_from_name(&folder.attributes, "path");
                 tmp_folder.title = XMLParser::get_value_from_name(&folder.attributes, "title");
 
@@ -487,22 +548,32 @@ impl DatabaseManager {
                 let mut tmp_item: Item = Item::new();
                 tmp_item.duration = XMLParser::get_value_from_name(&folder.attributes, "duration");
                 tmp_item.file_path = XMLParser::get_value_from_name(&folder.attributes, "path");
-                tmp_item.file_size = XMLParser::get_value_from_name(&folder.attributes, "size")
-                    .parse::<u64>()
-                    .unwrap();
-                tmp_item.id = XMLParser::get_value_from_name(&folder.attributes, "id")
-                    .parse::<u64>()
-                    .unwrap();
+                tmp_item.file_size =
+                    match XMLParser::get_value_from_name(&folder.attributes, "size")
+                        .parse::<u64>() {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    };
+                tmp_item.id = match XMLParser::get_value_from_name(&folder.attributes, "id")
+                    .parse::<u64>() {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                };
                 tmp_item.last_modified =
-                    XMLParser::get_value_from_name(&folder.attributes, "lastModified")
-                        .parse::<u64>()
-                        .unwrap();
+                    match XMLParser::get_value_from_name(&folder.attributes, "lastModified")
+                        .parse::<u64>() {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    };
                 tmp_item.media_type = MediaType::from_string(
                     &XMLParser::get_value_from_name(&folder.attributes, "type"),
                 );
-                tmp_item.parent_id = XMLParser::get_value_from_name(&folder.attributes, "parentId")
-                    .parse::<u64>()
-                    .unwrap();
+                tmp_item.parent_id =
+                    match XMLParser::get_value_from_name(&folder.attributes, "parentId")
+                        .parse::<u64>() {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    };
                 self.set_latest_id(tmp_item.id);
 
                 // Streams
@@ -510,48 +581,71 @@ impl DatabaseManager {
                     match stream.tag.as_ref() {
                         "stream" => {
                             let mut tmp_stream: Stream = Stream::new();
-                            tmp_stream.audio_channels = XMLParser::get_value_from_name(
+                            tmp_stream.audio_channels = match XMLParser::get_value_from_name(
                                 &stream.attributes,
                                 "nrAudioChannels",
-                            ).parse::<u8>()
-                                .unwrap();
-                            tmp_stream.bit_depth =
-                                XMLParser::get_value_from_name(&stream.attributes, "bitDepth")
-                                    .parse::<u8>()
-                                    .unwrap();
-                            tmp_stream.bitrate =
-                                XMLParser::get_value_from_name(&stream.attributes, "bitrate")
-                                    .parse::<u64>()
-                                    .unwrap();
+                            ).parse::<u8>() {
+                                Ok(value) => value,
+                                Err(_) => continue,
+                            };
+                            tmp_stream.bit_depth = match XMLParser::get_value_from_name(
+                                &stream.attributes,
+                                "bitDepth",
+                            ).parse::<u8>() {
+                                Ok(value) => value,
+                                Err(_) => continue,
+                            };
+                            tmp_stream.bitrate = match XMLParser::get_value_from_name(
+                                &stream.attributes,
+                                "bitrate",
+                            ).parse::<u64>() {
+                                Ok(value) => value,
+                                Err(_) => continue,
+                            };
                             tmp_stream.codec_name =
                                 XMLParser::get_value_from_name(&stream.attributes, "codecName");
                             tmp_stream.index =
-                                XMLParser::get_value_from_name(&stream.attributes, "index")
-                                    .parse::<u8>()
-                                    .unwrap();
-                            tmp_stream.is_default =
-                                XMLParser::get_value_from_name(&stream.attributes, "isDefault")
-                                    .parse::<bool>()
-                                    .unwrap();
-                            tmp_stream.is_forced =
-                                XMLParser::get_value_from_name(&stream.attributes, "isForced")
-                                    .parse::<bool>()
-                                    .unwrap();
+                                match XMLParser::get_value_from_name(&stream.attributes, "index")
+                                    .parse::<u8>() {
+                                    Ok(value) => value,
+                                    Err(_) => continue,
+                                };
+                            tmp_stream.is_default = match XMLParser::get_value_from_name(
+                                &stream.attributes,
+                                "isDefault",
+                            ).parse::<bool>() {
+                                Ok(value) => value,
+                                Err(_) => continue,
+                            };
+                            tmp_stream.is_forced = match XMLParser::get_value_from_name(
+                                &stream.attributes,
+                                "isForced",
+                            ).parse::<bool>() {
+                                Ok(value) => value,
+                                Err(_) => continue,
+                            };
                             tmp_stream.language =
                                 XMLParser::get_value_from_name(&stream.attributes, "language");
                             tmp_stream.frame_width =
-                                XMLParser::get_value_from_name(&stream.attributes, "width")
-                                    .parse::<u16>()
-                                    .unwrap();
-                            tmp_stream.frame_height =
-                                XMLParser::get_value_from_name(&stream.attributes, "height")
-                                    .parse::<u16>()
-                                    .unwrap();
-                            tmp_stream.sample_rate = XMLParser::get_value_from_name(
+                                match XMLParser::get_value_from_name(&stream.attributes, "width")
+                                    .parse::<u16>() {
+                                    Ok(value) => value,
+                                    Err(_) => continue,
+                                };
+                            tmp_stream.frame_height = match XMLParser::get_value_from_name(
+                                &stream.attributes,
+                                "height",
+                            ).parse::<u16>() {
+                                Ok(value) => value,
+                                Err(_) => continue,
+                            };
+                            tmp_stream.sample_rate = match XMLParser::get_value_from_name(
                                 &stream.attributes,
                                 "sampleFrequenzy",
-                            ).parse::<u32>()
-                                .unwrap();
+                            ).parse::<u32>() {
+                                Ok(value) => value,
+                                Err(_) => continue,
+                            };
                             tmp_stream.stream_type =
                                 StreamType::from_string(
                                     &XMLParser::get_value_from_name(&stream.attributes, "type"),
@@ -564,21 +658,31 @@ impl DatabaseManager {
                             tmp_thumb.file_path =
                                 XMLParser::get_value_from_name(&stream.attributes, "path");
                             tmp_thumb.file_size =
-                                XMLParser::get_value_from_name(&stream.attributes, "size")
-                                    .parse::<u64>()
-                                    .unwrap();
-                            tmp_thumb.height =
-                                XMLParser::get_value_from_name(&stream.attributes, "height")
-                                    .parse::<u16>()
-                                    .unwrap();
+                                match XMLParser::get_value_from_name(&stream.attributes, "size")
+                                    .parse::<u64>() {
+                                    Ok(value) => value,
+                                    Err(_) => continue,
+                                };
+                            tmp_thumb.height = match XMLParser::get_value_from_name(
+                                &stream.attributes,
+                                "height",
+                            ).parse::<u16>() {
+                                Ok(value) => value,
+                                Err(_) => continue,
+                            };
                             tmp_thumb.width =
-                                XMLParser::get_value_from_name(&stream.attributes, "width")
-                                    .parse::<u16>()
-                                    .unwrap();
-                            tmp_thumb.item_id =
-                                XMLParser::get_value_from_name(&stream.attributes, "itemId")
-                                    .parse::<u64>()
-                                    .unwrap();
+                                match XMLParser::get_value_from_name(&stream.attributes, "width")
+                                    .parse::<u16>() {
+                                    Ok(value) => value,
+                                    Err(_) => continue,
+                                };
+                            tmp_thumb.item_id = match XMLParser::get_value_from_name(
+                                &stream.attributes,
+                                "itemId",
+                            ).parse::<u64>() {
+                                Ok(value) => value,
+                                Err(_) => continue,
+                            };
                             tmp_thumb.mime_type =
                                 XMLParser::get_value_from_name(&stream.attributes, "mimeType");
 
@@ -613,6 +717,10 @@ impl DatabaseManager {
     /// This is used to make sure the DatabaseManager always nows
     /// the last ID and is able to offer a new ID that is always
     /// unique over all Elements.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Id to set
     fn set_latest_id(&mut self, id: u64) {
         if id > self.latest_id {
             self.latest_id = id;
@@ -631,24 +739,47 @@ impl DatabaseManager {
     /// Returns the last modified date of the element with
     /// the given Path. The Value will be a UNIX Timestamp
     /// in seconds. Folders and Files are possible.
+    /// Returns 0 if something went wrong. Attention: This
+    /// will indicate an element will always be handled as
+    /// modified!
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the File or Folder to get the last modified Date from
     fn get_last_modified(path: &str) -> u64 {
         let metadata = fs::metadata(path);
-        metadata
-            .unwrap()
-            .modified()
-            .unwrap()
-            .duration_since(time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
+        match metadata {
+            Ok(value) => {
+                match value.modified() {
+                    Ok(i_value) => {
+                        match i_value.duration_since(time::UNIX_EPOCH) {
+                            Ok(in_value) => in_value.as_secs(),
+                            Err(_) => 0,
+                        }
+                    }
+                    Err(_) => 0,
+                }
+            }
+            Err(_) => 0,
+        }
     }
 
     /// Checks if a File or Folder does exist. Returns
     /// true if so and false if not.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the File or Folder to check the Existance
     fn does_exist(&self, path: &str) -> bool {
         let path = Path::new(path);
         if path.exists() { true } else { false }
     }
 
+    /// Returns the List of Folders that got the given Id as Parent Folder
+    ///
+    /// # Arguments
+    ///
+    /// * `parent_id` - Id of the Element to get the Child-Folders for
     pub fn get_folder_from_parent(&self, parent_id: u64) -> Vec<Folder> {
         let mut res_vec: Vec<Folder> = Vec::new();
 
@@ -661,6 +792,11 @@ impl DatabaseManager {
         res_vec
     }
 
+    /// Returns a List of Items that got the given Id as Parent Folder
+    ///
+    /// # Arguments
+    ///
+    /// * `parent_id` - Id of the Element to get the Child-Item for
     pub fn get_items_from_parent(&self, parent_id: u64) -> Vec<Item> {
         let mut res_vec: Vec<Item> = Vec::new();
 
@@ -673,6 +809,11 @@ impl DatabaseManager {
         return res_vec;
     }
 
+    /// Directly returns the Folder with the given Id
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Id of the Folder to get the Values for
     pub fn get_folder_direct(&self, id: u64) -> Result<Folder, ()> {
         for folder in &self.media_folders {
             if folder.id == id {
@@ -683,6 +824,11 @@ impl DatabaseManager {
         Err(())
     }
 
+    /// Directly returns the Item with the given Id
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Id of the Item to get the Values for
     pub fn get_item_direct(&self, id: u64) -> Result<Item, ()> {
         for item in &self.media_item {
             if item.id == id {

@@ -1,8 +1,5 @@
-use std::net::UdpSocket;
-use std::str;
-use std::net::{SocketAddr, Ipv4Addr, IpAddr};
-use std::thread;
-use std::time;
+use std::net::{UdpSocket, SocketAddr, Ipv4Addr, IpAddr};
+use std::{str, time, thread};
 
 use configuration::ServerConfiguration;
 
@@ -13,9 +10,6 @@ use configuration::ServerConfiguration;
 /// Network.
 /// Spawns an individual Thread for Operation in Order
 /// to not block Main Execution.
-///
-/// # TO-DO
-/// - Implement Error Handling
 pub struct SSDPServer<'a> {
     server_cfg: &'a ServerConfiguration,
     socket: UdpSocket,
@@ -23,28 +17,48 @@ pub struct SSDPServer<'a> {
 
 impl<'a> SSDPServer<'a> {
     /// Creates new Instance of the SSDP Server and directly
-    /// binds the required UDP Sockets.
-    pub fn new(server_cfg: &ServerConfiguration) -> SSDPServer {
-        SSDPServer {
+    /// binds the required UDP Sockets. Returns Err if unable to bind
+    ///
+    /// # Arguments
+    ///
+    /// * `server_cfg` - The Servers Configuration
+    pub fn new(server_cfg: &ServerConfiguration) -> Result<SSDPServer, ()> {
+        let ssdp = SSDPServer {
             server_cfg,
-            socket: UdpSocket::bind(("0.0.0.0", 1900)).unwrap(),
-        }
+            socket: match UdpSocket::bind((server_cfg.server_ip.as_str(), 1900)) {
+                Ok(value) => value,
+                Err(_) => return Err(()),
+            },
+        };
+
+        Ok(ssdp)
     }
 
     /// Brings up the SSDP Server and announces the UPnP Services
     /// to the Network.
     /// Runs in an new Thread and spawns another to periodically
     /// announce the Services to the Network.
-    pub fn discover(&self) {
-        self.socket.set_multicast_loop_v4(false).expect("");
-        self.socket
-            .join_multicast_v4(
-                &Ipv4Addr::new(239, 255, 255, 250),
-                &self.server_cfg.server_ip.parse::<Ipv4Addr>().unwrap(),
-            )
-            .expect("");
+    pub fn discover(&self) -> Result<(), ()> {
+        match self.socket.set_multicast_loop_v4(false) {
+            Ok(_) => {}
+            Err(_) => return Err(()),
+        };
 
-        let socket_c = self.socket.try_clone().unwrap();
+        match self.socket.join_multicast_v4(
+            &Ipv4Addr::new(239, 255, 255, 250),
+            &match self.server_cfg.server_ip.parse::<Ipv4Addr>() {
+                Ok(value) => value,
+                Err(_) => return Err(()),
+            },
+        ) {
+            Ok(_) => {}
+            Err(_) => return Err(()),
+        };
+
+        let socket_c = match self.socket.try_clone() {
+            Ok(value) => value,
+            Err(_) => return Err(()),
+        };
         let cfg_ip = self.server_cfg.server_ip.clone();
         let cfg_port = self.server_cfg.server_port;
         let cfg_uuid = self.server_cfg.server_uuid.clone();
@@ -60,24 +74,36 @@ impl<'a> SSDPServer<'a> {
             );
         });
 
-        let socket_c = self.socket.try_clone().unwrap();
+        let socket_c = match self.socket.try_clone() {
+            Ok(value) => value,
+            Err(_) => return Err(()),
+        };
         let cfg_ip = self.server_cfg.server_ip.clone();
         let cfg_port = self.server_cfg.server_port;
         let cfg_uuid = self.server_cfg.server_uuid.clone();
         let cfg_tag = self.server_cfg.server_tag.clone();
 
         thread::spawn(move || {
-            let mut buffer = [0; 2048];
+            let mut buffer = [0; 4096];
 
             loop {
-                let (amt, src) = socket_c.recv_from(&mut buffer).unwrap();
+                let (amt, src) = match socket_c.recv_from(&mut buffer) {
+                    Ok(value) => value,
+                    Err(_) => break,
+                };
 
                 if amt > 0 {
-                    let request = str::from_utf8(&buffer[..amt]).unwrap();
+                    let request = match str::from_utf8(&buffer[..amt]) {
+                        Ok(value) => value,
+                        Err(_) => break,
+                    };
 
-                    if &request[..10] == "M-SEARCH *" {
+                    if request.len() > 10 && &request[..10] == "M-SEARCH *" {
                         SSDPServer::send_search_response(
-                            socket_c.try_clone().unwrap(),
+                            match socket_c.try_clone() {
+                                Ok(value) => value,
+                                Err(_) => break,
+                            },
                             src,
                             request,
                             &cfg_uuid,
@@ -89,183 +115,233 @@ impl<'a> SSDPServer<'a> {
                 }
             }
         });
+
+        Ok(())
     }
 
     /// Removes the Services from the Network using ByeBye Signals.
     /// This will stop the SSDP Server.
     pub fn byebye(&self) {
-        let maddr = SocketAddr::new("239.255.255.250".parse::<IpAddr>().unwrap(), 1900);
+        let maddr = SocketAddr::new(
+            match "239.255.255.250".parse::<IpAddr>() {
+                Ok(value) => value,
+                Err(_) => return,
+            },
+            1900,
+        );
 
-        self.socket
-            .send_to(
-                SSDPServer::get_notify_package(
-                    "byebye",
-                    "upnp:rootdevice",
-                    &("uuid:".to_string() + &self.server_cfg.server_uuid +
-                          &"::upnp:rootdevice".to_string()),
-                    "description.xml",
-                    &self.server_cfg.server_ip,
-                    &self.server_cfg.server_port.to_string(),
-                    &self.server_cfg.server_tag,
-                ).as_bytes(),
-                maddr,
-            )
-            .expect("");
+        match self.socket.send_to(
+            SSDPServer::get_notify_package(
+                "byebye",
+                "upnp:rootdevice",
+                &format!("uuid:{}::upnp:rootdevice", self.server_cfg.server_uuid),
+                "description.xml",
+                &self.server_cfg.server_ip,
+                &self.server_cfg.server_port.to_string(),
+                &self.server_cfg.server_tag,
+            ).as_bytes(),
+            maddr,
+        ) {
+            Ok(_) => {}
+            Err(_) => return,
+        };
 
-        self.socket
-            .send_to(
-                SSDPServer::get_notify_package(
-                    "byebye",
-                    &("uuid:".to_string() + &self.server_cfg.server_uuid),
-                    &("uuid:".to_string() + &self.server_cfg.server_uuid),
-                    "description.xml",
-                    &self.server_cfg.server_ip,
-                    &self.server_cfg.server_port.to_string(),
-                    &self.server_cfg.server_tag,
-                ).as_bytes(),
-                maddr,
-            )
-            .expect("");
+        match self.socket.send_to(
+            SSDPServer::get_notify_package(
+                "byebye",
+                &format!("uuid:{}", self.server_cfg.server_uuid),
+                &format!("uuid:{}", self.server_cfg.server_uuid),
+                "description.xml",
+                &self.server_cfg.server_ip,
+                &self.server_cfg.server_port.to_string(),
+                &self.server_cfg.server_tag,
+            ).as_bytes(),
+            maddr,
+        ) {
+            Ok(_) => {}
+            Err(_) => return,
+        };
 
-        self.socket
-            .send_to(
-                SSDPServer::get_notify_package(
-                    "byebye",
-                    "urn:schemas-upnp-org:device:MediaServer:1",
-                    &("uuid:".to_string() + &self.server_cfg.server_uuid +
-                          &"::urn:schemas-upnp-org:device:MediaServer:1".to_string()),
-                    "description.xml",
-                    &self.server_cfg.server_ip,
-                    &self.server_cfg.server_port.to_string(),
-                    &self.server_cfg.server_tag,
-                ).as_bytes(),
-                maddr,
-            )
-            .expect("");
+        match self.socket.send_to(
+            SSDPServer::get_notify_package(
+                "byebye",
+                "urn:schemas-upnp-org:device:MediaServer:1",
+                &format!(
+                    "uuid:{}::urn:schemas-upnp-org:device:MediaServer:1",
+                    self.server_cfg.server_uuid
+                ),
+                "description.xml",
+                &self.server_cfg.server_ip,
+                &self.server_cfg.server_port.to_string(),
+                &self.server_cfg.server_tag,
+            ).as_bytes(),
+            maddr,
+        ) {
+            Ok(_) => {}
+            Err(_) => return,
+        };
 
-        self.socket
-            .send_to(
-                SSDPServer::get_notify_package(
-                    "byebye",
-                    "urn:schemas-upnp-org:service:ContentDirectory:1",
-                    &("USN: uuid:".to_string() + &self.server_cfg.server_uuid +
-                          &"::urn:schemas-upnp-org:service:ContentDirectory:1".to_string()),
-                    "description.xml",
-                    &self.server_cfg.server_ip,
-                    &self.server_cfg.server_port.to_string(),
-                    &self.server_cfg.server_tag,
-                ).as_bytes(),
-                maddr,
-            )
-            .expect("");
+        match self.socket.send_to(
+            SSDPServer::get_notify_package(
+                "byebye",
+                "urn:schemas-upnp-org:service:ContentDirectory:1",
+                &format!(
+                    "USN: uuid:{}::urn:schemas-upnp-org:service:ContentDirectory:1",
+                    self.server_cfg.server_uuid
+                ),
+                "description.xml",
+                &self.server_cfg.server_ip,
+                &self.server_cfg.server_port.to_string(),
+                &self.server_cfg.server_tag,
+            ).as_bytes(),
+            maddr,
+        ) {
+            Ok(_) => {}
+            Err(_) => return,
+        };
 
-        self.socket
-            .send_to(
-                SSDPServer::get_notify_package(
-                    "byebye",
-                    "urn:schemas-upnp-org:service:ConnectionManager:1",
-                    &("USN: uuid:".to_string() + &self.server_cfg.server_uuid +
-                          &"::urn:schemas-upnp-org:service:ConnectionManager:1".to_string()),
-                    "description.xml",
-                    &self.server_cfg.server_ip,
-                    &self.server_cfg.server_port.to_string(),
-                    &self.server_cfg.server_tag,
-                ).as_bytes(),
-                maddr,
-            )
-            .expect("");
+        match self.socket.send_to(
+            SSDPServer::get_notify_package(
+                "byebye",
+                "urn:schemas-upnp-org:service:ConnectionManager:1",
+                &format!(
+                    "USN: uuid:{}::urn:schemas-upnp-org:service:ConnectionManager:1",
+                    self.server_cfg.server_uuid
+                ),
+                "description.xml",
+                &self.server_cfg.server_ip,
+                &self.server_cfg.server_port.to_string(),
+                &self.server_cfg.server_tag,
+            ).as_bytes(),
+            maddr,
+        ) {
+            Ok(_) => {}
+            Err(_) => return,
+        };
     }
 
     /// Periodically sends Notify Packages to the Network
     /// to announce the Services to the Network.
     /// New alive Messages will be send every 180s
+    ///
+    /// # Arguments
+    ///
+    /// * `socket` - UDP Socket to use
+    /// * `uuid` - UUID of the Media Server
+    /// * `ip` - IP Address of the Server
+    /// * `port` - Port the Server listens on
+    /// * `tag` - The Servers HTTP Server Header Tag
     fn send_notify_packages(socket: UdpSocket, uuid: &str, ip: &str, port: &str, tag: &str) {
+        let maddr = SocketAddr::new(
+            match "239.255.255.250".parse::<IpAddr>() {
+                Ok(value) => value,
+                Err(_) => return,
+            },
+            1900,
+        );
+
         loop {
-            let maddr = SocketAddr::new("239.255.255.250".parse::<IpAddr>().unwrap(), 1900);
+            match socket.send_to(
+                SSDPServer::get_notify_package(
+                    "alive",
+                    "upnp:rootdevice",
+                    &format!("uuid:{}::upnp:rootdevice", uuid),
+                    "description.xml",
+                    ip,
+                    port,
+                    tag,
+                ).as_bytes(),
+                maddr,
+            ) {
+                Ok(_) => {}
+                Err(_) => return,
+            };
 
-            socket
-                .send_to(
-                    SSDPServer::get_notify_package(
-                        "alive",
-                        "upnp:rootdevice",
-                        &("uuid:".to_string() + uuid + &"::upnp:rootdevice".to_string()),
-                        "description.xml",
-                        ip,
-                        port,
-                        tag,
-                    ).as_bytes(),
-                    maddr,
-                )
-                .expect("");
+            match socket.send_to(
+                SSDPServer::get_notify_package(
+                    "alive",
+                    &format!("uuid:{}", uuid),
+                    &format!("uuid:{}", uuid),
+                    "description.xml",
+                    ip,
+                    port,
+                    tag,
+                ).as_bytes(),
+                maddr,
+            ) {
+                Ok(_) => {}
+                Err(_) => return,
+            };
 
-            socket
-                .send_to(
-                    SSDPServer::get_notify_package(
-                        "alive",
-                        &("uuid:".to_string() + uuid),
-                        &("uuid:".to_string() + uuid),
-                        "description.xml",
-                        ip,
-                        port,
-                        tag,
-                    ).as_bytes(),
-                    maddr,
-                )
-                .expect("");
+            match socket.send_to(
+                SSDPServer::get_notify_package(
+                    "alive",
+                    "urn:schemas-upnp-org:device:MediaServer:1",
+                    &format!("uuid:{}::urn:schemas-upnp-org:device:MediaServer:1", uuid),
+                    "description.xml",
+                    ip,
+                    port,
+                    tag,
+                ).as_bytes(),
+                maddr,
+            ) {
+                Ok(_) => {}
+                Err(_) => return,
+            };
 
-            socket
-                .send_to(
-                    SSDPServer::get_notify_package(
-                        "alive",
-                        "urn:schemas-upnp-org:device:MediaServer:1",
-                        &("uuid:".to_string() + &uuid +
-                              &"::urn:schemas-upnp-org:device:MediaServer:1".to_string()),
-                        "description.xml",
-                        ip,
-                        port,
-                        tag,
-                    ).as_bytes(),
-                    maddr,
-                )
-                .expect("");
+            match socket.send_to(
+                SSDPServer::get_notify_package(
+                    "alive",
+                    "urn:schemas-upnp-org:service:ContentDirectory:1",
+                    &format!(
+                        "uuid:{}::urn:schemas-upnp-org:service:ContentDirectory:1",
+                        uuid
+                    ),
+                    "description.xml",
+                    ip,
+                    port,
+                    tag,
+                ).as_bytes(),
+                maddr,
+            ) {
+                Ok(_) => {}
+                Err(_) => return,
+            };
 
-            socket
-                .send_to(
-                    SSDPServer::get_notify_package(
-                        "alive",
-                        "urn:schemas-upnp-org:service:ContentDirectory:1",
-                        &("USN: uuid:".to_string() + uuid +
-                              &"::urn:schemas-upnp-org:service:ContentDirectory:1".to_string()),
-                        "description.xml",
-                        ip,
-                        port,
-                        tag,
-                    ).as_bytes(),
-                    maddr,
-                )
-                .expect("");
-
-            socket
-                .send_to(
-                    SSDPServer::get_notify_package(
-                        "alive",
-                        "urn:schemas-upnp-org:service:ConnectionManager:1",
-                        &("USN: uuid:".to_string() + uuid +
-                              &"::urn:schemas-upnp-org:service:ConnectionManager:1".to_string()),
-                        "description.xml",
-                        ip,
-                        port,
-                        tag,
-                    ).as_bytes(),
-                    maddr,
-                )
-                .expect("");
+            match socket.send_to(
+                SSDPServer::get_notify_package(
+                    "alive",
+                    "urn:schemas-upnp-org:service:ConnectionManager:1",
+                    &format!(
+                        "uuid:{}::urn:schemas-upnp-org:service:ConnectionManager:1",
+                        uuid
+                    ),
+                    "description.xml",
+                    ip,
+                    port,
+                    tag,
+                ).as_bytes(),
+                maddr,
+            ) {
+                Ok(_) => {}
+                Err(_) => return,
+            };
 
             thread::sleep(time::Duration::from_secs(180));
         }
     }
 
     /// Send answers to Search Requests
+    ///
+    /// # Arguments
+    ///
+    /// * `socket` - The Socket to send on
+    /// * `receiver` - Address of the Receiver to send to
+    /// * `request` - The received Search Request
+    /// * `uuid` - UUID of the Media Server
+    /// * `ip` - IP Address of the Server
+    /// * `port` - Port the Server listens on
+    /// * `tag` - The Servers HTTP Server Header Tag
     fn send_search_response(
         socket: UdpSocket,
         receiver: SocketAddr,
@@ -277,11 +353,14 @@ impl<'a> SSDPServer<'a> {
     ) {
         let mut message = String::new();
 
-        if request.find("ssdp:all").is_some() {
+        if request.find("ssdp:all").is_some() ||
+            request
+                .find("urn:schemas-upnp-org:device:MediaServer")
+                .is_some()
+        {
             message = SSDPServer::get_search_response_package(
                 "urn:schemas-upnp-org:device:MediaServer:1",
-                &("uuid:".to_string() + uuid +
-                      &"::urn:schemas-upnp-org:device:MediaServer:1".to_string()),
+                &format!("uuid:{}::urn:schemas-upnp-org:device:MediaServer:1", uuid),
                 "description.xml",
                 ip,
                 port,
@@ -290,33 +369,22 @@ impl<'a> SSDPServer<'a> {
         } else if request.find("upnp:rootdevice").is_some() {
             message = SSDPServer::get_search_response_package(
                 "upnp:rootdevice",
-                &("uuid:".to_string() + uuid + &"::upnp:rootdevice".to_string()),
+                &format!("uuid:{}::upnp:rootdevice", uuid),
                 "description.xml",
                 ip,
                 port,
                 tag,
             );
         } else if request
-                   .find("urn:schemas-upnp-org:device:MediaServer")
-                   .is_some()
-        {
-            message = SSDPServer::get_search_response_package(
-                "urn:schemas-upnp-org:device:MediaServer:1",
-                &("uuid:".to_string() + uuid +
-                      &"::urn:schemas-upnp-org:device:MediaServer:1".to_string()),
-                "description.xml",
-                ip,
-                port,
-                tag,
-            )
-        } else if request
                    .find("urn:schemas-upnp-org:service:ContentDirectory")
                    .is_some()
         {
             message = SSDPServer::get_search_response_package(
                 "urn:schemas-upnp-org:service:ContentDirectory:1",
-                &("uuid:".to_string() + uuid +
-                      &"::urn:schemas-upnp-org:service:ContentDirectory:1".to_string()),
+                &format!(
+                    "uuid:{}::urn:schemas-upnp-org:service:ContentDirectory:1",
+                    uuid
+                ),
                 "description.xml",
                 ip,
                 port,
@@ -328,8 +396,10 @@ impl<'a> SSDPServer<'a> {
         {
             message = SSDPServer::get_search_response_package(
                 "urn:schemas-upnp-org:service:ConnectionManager:1",
-                &("uuid:".to_string() + uuid +
-                      &"::urn:schemas-upnp-org:service:ConnectionManager:1".to_string()),
+                &format!(
+                    "uuid:{}::urn:schemas-upnp-org:service:ConnectionManager:1",
+                    uuid
+                ),
                 "description.xml",
                 ip,
                 port,
@@ -341,8 +411,10 @@ impl<'a> SSDPServer<'a> {
         {
             message = SSDPServer::get_search_response_package(
                 "urn:microsoft.com:service:X_MS_MediaReceiverRegistrar:1",
-                &("uuid:".to_string() + uuid +
-                      &"::urn:microsoft.com:service:X_MS_MediaReceiverRegistrar:1".to_string()),
+                &format!(
+                    "uuid:{}::urn:microsoft.com:service:X_MS_MediaReceiverRegistrar:1",
+                    uuid
+                ),
                 "description.xml",
                 ip,
                 port,
@@ -351,11 +423,24 @@ impl<'a> SSDPServer<'a> {
         }
 
         if message.len() > 0 {
-            socket.send_to(message.as_bytes(), receiver).expect("");
+            match socket.send_to(message.as_bytes(), receiver) {
+                Ok(_) => {}
+                Err(_) => return,
+            };
         }
     }
 
     /// Generate a Notify Package for sending over UDP
+    ///
+    /// # Arguments
+    ///
+    /// * `nts` - NTS Value to use
+    /// * `nt` - NT Value to use
+    /// * `usn` - USN Value to use
+    /// * `location` - Path to send
+    /// * `server_ip` - IP of the Server
+    /// * `server_port` - Port the Server listens on
+    /// * `server_tag` - The Servers HTTP Identification Tag
     fn get_notify_package(
         nts: &str,
         nt: &str,
@@ -365,37 +450,29 @@ impl<'a> SSDPServer<'a> {
         server_port: &str,
         server_tag: &str,
     ) -> String {
-        let mut header: String = String::new();
 
-        header.push_str("NOTIFY * HTTP/1.1\r\n");
-        header.push_str("SERVER: ");
-        header.push_str(server_tag);
-        header.push_str("\r\n");
-        header.push_str("CACHE-CONTROL: max-age=1800\r\n");
-        header.push_str("LOCATION: http://");
-        header.push_str(server_ip);
-        header.push_str(":");
-        header.push_str(server_port);
-        header.push_str("/connection/");
-        header.push_str(location);
-        header.push_str("\r\n");
-        header.push_str("NTS: ssdp:");
-        header.push_str(nts);
-        header.push_str("\r\n");
-        header.push_str("NT: ");
-        header.push_str(nt);
-        header.push_str("\r\n");
-        header.push_str("USN: ");
-        header.push_str(usn);
-        header.push_str("\r\n");
-        header.push_str("HOST: 239.255.255.250:1900");
-        header.push_str("\r\n\r\n");
-
-        header
+        format!(
+            "NOTIFY * HTTP/1.1\r\nSERVER: {}\r\nCACHE-CONTROL: max-age=1800\r\nLOCATION: http://{}:{}/connection/{}\r\nNTS: ssdp:{}\r\nNT: {}\r\nUSN: {}\r\nHOST: 239.255.255.250:1900\r\n\r\n",
+            server_tag,
+            server_ip,
+            server_port,
+            location,
+            nts,
+            nt,
+            usn
+        )
     }
 
     /// Generate a Search Response Package as Answer to
-    /// a M-SEARCH Request
+    /// a M-SEARCH Request ///
+    /// # Arguments
+    ///
+    /// * `st` - ST Value to use
+    /// * `usn` - USN Value to use
+    /// * `location` - Path to send
+    /// * `server_ip` - IP of the Server
+    /// * `server_port` - Port the Server listens on
+    /// * `server_tag` - The Servers HTTP Identification Tag
     fn get_search_response_package(
         st: &str,
         usn: &str,
@@ -404,29 +481,14 @@ impl<'a> SSDPServer<'a> {
         server_port: &str,
         server_tag: &str,
     ) -> String {
-        let mut response: String = String::new();
-
-        response.push_str("HTTP/1.1 200 OK\r\n");
-        response.push_str("SERVER: ");
-        response.push_str(server_tag);
-        response.push_str("\r\n");
-        response.push_str("CACHE-CONTROL: max-age=1800\r\n");
-        response.push_str("LOCATION: http://");
-        response.push_str(server_ip);
-        response.push_str(":");
-        response.push_str(server_port);
-        response.push_str("/connection/");
-        response.push_str(location);
-        response.push_str("\r\n");
-        response.push_str("ST: ");
-        response.push_str(st);
-        response.push_str("\r\n");
-        response.push_str("USN: ");
-        response.push_str(usn);
-        response.push_str("\r\n");
-        response.push_str("Content-Length: 0\r\n");
-        response.push_str("EXT:\r\n\r\n");
-
-        response
+        format!(
+            "HTTP/1.1 200 OK\r\nSERVER: {}\r\nCACHE-CONTROL: max-age=1800\r\nLOCATION: http://{}:{}/connection/{}\r\nST: {}\r\nUSN: {}\r\nContent-Length: 0\r\nEXT:\r\n\r\n",
+            server_tag,
+            server_ip,
+            server_port,
+            location,
+            st,
+            usn
+        )
     }
 }

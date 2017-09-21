@@ -38,7 +38,7 @@ impl ServerConfiguration {
             log_level: 0,
             server_tag: String::from("SLMS"),
             server_ip: String::from("127.0.0.1"),
-            server_uuid: String::from("xxx"),
+            server_uuid: String::from("zzxxxzz"),
             media_db_path: String::from("/var/lib/slms/db.xml"),
         }
     }
