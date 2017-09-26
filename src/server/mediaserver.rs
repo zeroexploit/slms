@@ -281,7 +281,6 @@ impl MediaServer {
                 http::generate_header(xml.len(), "text/xml", false, &svr_cfg, http::Status::Ok200);
 
             response.push_str(&xml);
-
             con_manager.send_data(&response, stream);
         } else {
             LOGGER.lock().unwrap().write_log(
