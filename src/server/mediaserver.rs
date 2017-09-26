@@ -133,7 +133,10 @@ impl MediaServer {
         );
 
         // Bring up the SSDP Server
-        let ssdp_server: SSDPServer = match SSDPServer::new(&cfg_handler.server_configuration) {
+        let ssdp_server: SSDPServer = match SSDPServer::new(
+            &cfg_handler.server_configuration,
+            LOGGER.lock().unwrap().clone(),
+        ) {
             Ok(value) => value,
             Err(_) => {
                 LOGGER.lock().unwrap().write_log(
