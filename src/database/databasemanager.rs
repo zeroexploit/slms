@@ -110,6 +110,16 @@ impl DatabaseManager {
 
         // Store Database to File System
         self.save_database(true);
+
+        // Ouput Information
+        self.logger.write_log(
+            &format!(
+                "DB: Database Ready. There is a total of {} Folders and {} Files available.",
+                self.media_folders.len(),
+                self.media_item.len()
+            ),
+            LogLevel::INFORMATION,
+        );
     }
 
     /// Parses a Folder with the given Format. Calls the same function
@@ -307,9 +317,7 @@ impl DatabaseManager {
                                 item.parent_id = id;
                                 // Skip hidden Files
                                 if item.meta_data.file_name.len() > 0 {
-                                    if &item.meta_data.file_name[..1] != "." {
-                                        self.media_item.push(item);
-                                    } else {
+                                    if &item.meta_data.file_name[..1] == "." {
                                         self.logger.write_log(
                                             &format!(
                                                 "DB - load_database(): Skipping hidden File: {}",
@@ -317,6 +325,9 @@ impl DatabaseManager {
                                             ),
                                             LogLevel::DEBUG,
                                         );
+
+                                    } else {
+                                        self.media_item.push(item);
                                     }
                                 } else {
                                     self.logger.write_log(&format!("DB - load_database(): Unable to determine Filename for: {}", ele_str), LogLevel::ERROR);
@@ -592,6 +603,12 @@ impl DatabaseManager {
                 return;
             }
         };
+
+        self.logger.write_log(
+            &format!("DB - load_database(): Reading Database File Content"),
+            LogLevel::VERBOSE,
+        );
+
         let mut contents = String::new();
         match db_file.read_to_string(&mut contents) {
             Ok(_) => {}
@@ -608,8 +625,21 @@ impl DatabaseManager {
             }
         }
 
+        self.logger.write_log(
+            &format!("DB - load_database(): Content loaded. Parsing XML..."),
+            LogLevel::VERBOSE,
+        );
+
         let xml_parser: XMLParser = XMLParser::open(&contents);
         let mut root_xml: XMLEntry = XMLEntry::new();
+
+        self.logger.write_log(
+            &format!(
+                "DB - load_database(): XML loaded. Moving Root and Formats to Memory..."
+            ),
+            LogLevel::VERBOSE,
+        );
+
 
         // Read Root and Format Tags
         for entry in xml_parser.xml_entries {
@@ -674,6 +704,11 @@ impl DatabaseManager {
                 _ => (),
             }
         }
+
+        self.logger.write_log(
+            &format!("DB - load_database(): Root and Formats loaded. Moving Folders and Items to Memory..."),
+            LogLevel::VERBOSE,
+        );
 
         // Media Folders
         for folder in root_xml.sub_tags {
@@ -756,11 +791,12 @@ impl DatabaseManager {
                     } else {
                         self.logger.write_log(
                             &format!(
-                        "DB - load_database(): Folder: {} has changed. Remove from DB and prepare to re-parse...",
+                        "DB - load_database(): Folder: {} has changed. Prepare to re-parse...",
                         tmp_folder.path,
                     ),
                             LogLevel::VERBOSE,
                         );
+                        self.media_folders.push(tmp_folder);
                     }
                 } else {
                     self.logger.write_log(
@@ -1084,6 +1120,11 @@ impl DatabaseManager {
                 }
             }
         }
+
+        self.logger.write_log(
+            &format!("DB - load_database(): All Data loaded into Memory."),
+            LogLevel::VERBOSE,
+        );
     }
 
     /// Takes the given ID and sets it to be the highest one

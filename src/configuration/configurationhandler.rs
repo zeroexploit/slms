@@ -56,16 +56,30 @@ impl ConfigurationHandler {
     /// If there was an Error this function returns false,
     /// and true if everything went well.
     pub fn parse(&mut self, cfg_path: &str) -> bool {
+        println!("Reading Configuration: {}", cfg_path);
+
         self.cfg_file_path = cfg_path.to_string();
         let mut success = true;
 
         // Open Cfg File
-        let cfg_file = File::open(&self.cfg_file_path).unwrap();
+        let cfg_file = match File::open(&self.cfg_file_path) {
+            Ok(value) => value,
+            Err(e) => {
+                println!("Unable to open Server Configuration! Reason: {}", e);
+                return false;
+            }
+        };
         let file = BufReader::new(&cfg_file);
 
         // Read all Lines
         for line in file.lines() {
-            let line_res = line.unwrap();
+            let line_res = match line {
+                Ok(value) => value,
+                Err(e) => {
+                    println!("Unable to read Configuration Line! Reason: {}", e);
+                    continue;
+                }
+            };
             let mut name = line_res.clone();
 
             // Skip Comments
@@ -73,9 +87,24 @@ impl ConfigurationHandler {
                 continue;
             }
 
-            name = name[..name.find("=").unwrap()].trim().to_string();
+            name = name[..match name.find("=") {
+                            Some(value) => value,
+                            None => {
+                                println!("Unable to find \"=\" in Name with {}", name);
+                                continue;
+                            }
+                        }].trim()
+                .to_string();
             let mut value = line_res;
-            value = value[(value.find("=").unwrap() + 1)..].trim().to_string();
+            value = value[(match value.find("=") {
+                               Some(value) => value,
+                               None => {
+                                   println!("Unable to find \"=\" in Value with {}", value);
+                                   continue;
+                               }
+                           }) + 1..]
+                .trim()
+                .to_string();
 
             if value.len() == 0 {
                 continue;
@@ -112,6 +141,7 @@ impl ConfigurationHandler {
                     }
 
                     if !found {
+                        println!("The given Network Interface {} is not  available!", value);
                         self.server_configuration.server_interface = String::new();
                         self.server_configuration.server_ip = String::new();
                     }
@@ -130,7 +160,7 @@ impl ConfigurationHandler {
                 "logfile" => self.server_configuration.log_path = value.to_string(),
                 "loglevel" => self.server_configuration.log_level = value.parse::<u8>().unwrap(),
                 "databasepath" => self.server_configuration.media_db_path = value.to_string(),
-                _ => (),
+                _ => println!("Notice: Unknown Name - Value Pair: {} - {}", name, value),
             }
         }
 
@@ -139,32 +169,43 @@ impl ConfigurationHandler {
             self.server_configuration.default_renderer_path =
                 String::from("/etc/slms/renderer/default.cfg");
             success = false;
+            println!("Attention: No Default Renderer was configurated. Falling Back to default!");
         }
 
         if self.server_configuration.log_path.len() == 0 {
             self.server_configuration.log_path = String::from("/var/log/slms.log");
             success = false;
+            println!("Attention: No Log File Path was configurated. Falling Back to default!");
         }
 
         if self.server_configuration.renderer_dir.len() == 0 {
             self.server_configuration.default_renderer_path = String::from("/etc/slms/renderer/");
             success = false;
+            println!(
+                "Attention: No Renderer Configuration Directory was configurated. Falling Back to default!"
+            );
         }
-
 
         if self.server_configuration.server_name.len() == 0 {
             self.server_configuration.server_name = String::from("SLMS");
             success = false;
+            println!("Attention: No Server Name was configurated. Falling Back to default!");
         }
 
         if self.server_configuration.share_dirs.len() == 0 {
             self.server_configuration.share_dirs.push(String::from("/"));
             success = false;
+            println!(
+                "Attention: No Shared Folder was configurated. Falling Back to default! -- High Security Risk --"
+            );
         }
 
         if self.server_configuration.thumbnail_dir.len() == 0 {
             self.server_configuration.thumbnail_dir = String::from("/var/lib/slms/thumbnails/");
             success = false;
+            println!(
+                "Attention: No Thumbnail Directory was configurated. Falling Back to default!"
+            );
         }
 
         if self.server_configuration.server_interface.len() == 0 ||
@@ -173,9 +214,13 @@ impl ConfigurationHandler {
             let faces = datalink::interfaces();
             let iface = match faces.get(0) {
                 Some(value) => value,
-                None => return false,
+                None => {
+                    println!("Attention: No Network Interface is available. Stopping!");
+                    return false;
+                }
 
             };
+
             self.server_configuration.server_ip = match iface.ips.get(0) {
                 Some(value) => {
                     let ip = value.to_string();
@@ -184,23 +229,46 @@ impl ConfigurationHandler {
                            None => ip.len(),
                        }].to_string()
                 }
-                None => return false,
+                None => {
+                    println!("Attention: No IP Address could be obtained! Stopping!");
+                    return false;
+                }
             };
         }
 
         // Parse all Renderers
-        let paths = fs::read_dir(self.server_configuration.renderer_dir.clone()).unwrap();
+        let paths = match fs::read_dir(self.server_configuration.renderer_dir.clone()) {
+            Ok(value) => value,
+            Err(e) => {
+                println!(
+                    "Unable to read the Renderers Configuration Directory! Stopping! Reason: {}",
+                    e
+                );
+                return false;
+            }
+        };
 
         for path in paths {
             match path {
                 Ok(element) => {
                     if element.path().is_file() {
-                        if self.parse_renderer(element.path().to_str().unwrap()) == false {
+                        if self.parse_renderer(match element.path().to_str() {
+                            Some(value) => value,
+                            None => {
+                                println!("Unable to convert to str");
+                                continue;
+                            }
+                        }) == false
+                        {
                             success = false;
+                            println!("Attention: Unable to parse Renderer!");
                         }
                     }
                 }
                 Err(_) => {
+                    println!(
+                        "Attention: Unable to parse Renderer in Renderer Configuration Directory!"
+                    );
                     continue;
                 }
             }
@@ -218,7 +286,6 @@ impl ConfigurationHandler {
         // Generate the Servers UUID
         self.server_configuration.server_uuid = Uuid::new_v4().to_string();
 
-
         success
     }
 
@@ -226,16 +293,37 @@ impl ConfigurationHandler {
     /// Renderers. Returns true if everything went well and false
     /// if something did not work.
     fn parse_renderer(&mut self, path: &str) -> bool {
+        println!("Reading Renderer Configuration: {}", path);
+
         let success = true;
         let mut rnd_cfg: RendererConfiguration = RendererConfiguration::new();
 
         // Open Cfg File
-        let cfg_file = File::open(path).unwrap();
+        let cfg_file = match File::open(path) {
+            Ok(value) => value,
+            Err(e) => {
+                println!(
+                    "Attention: Unable to open Renderer Configuration: {} - Reason: {}",
+                    path,
+                    e
+                );
+                return false;
+            }
+        };
         let file = BufReader::new(&cfg_file);
 
         // Read all Lines
         for line in file.lines() {
-            let line_res = line.unwrap();
+            let line_res = match line {
+                Ok(value) => value,
+                Err(e) => {
+                    println!(
+                        "Attention: Unable to read Renderer Configuration Line! Reason: {}",
+                        e
+                    );
+                    return false;
+                }
+            };
             let mut name = line_res.clone();
 
             // Skip Comments
@@ -243,9 +331,24 @@ impl ConfigurationHandler {
                 continue;
             }
 
-            name = name[..name.find("=").unwrap()].trim().to_string();
+            name = name[..match name.find("=") {
+                            Some(value) => value,
+                            None => {
+                                println!("Unable to find \"=\" in Name for {}", name);
+                                return false;
+                            }
+                        }].trim()
+                .to_string();
             let mut value = line_res;
-            value = value[(value.find("=").unwrap() + 1)..].trim().to_string();
+            value = value[(match value.find("=") {
+                               Some(value) => value,
+                               None => {
+                                   println!("Unable to find \"=\" in Value for {}", value);
+                                   return false;
+                               }
+                           }) + 1..]
+                .trim()
+                .to_string();
 
             // Skip empty Values
             if value.len() == 0 {
@@ -261,12 +364,33 @@ impl ConfigurationHandler {
                 }
                 "conmap" => {
                     let mut tmp_con: SourceTargetMap = SourceTargetMap::new();
-                    tmp_con.source = value[..value.find(":").unwrap()].to_string();
-                    tmp_con.target = value[(value.find(":").unwrap() + 1)..].to_string();
+                    tmp_con.source = value[..match value.find(":") {
+                                               Some(value) => value,
+                                               None => {
+                                                   println!("Invalid ConMap Option!");
+                                                   return false;
+                                               }
+                                           }].to_string();
+                    tmp_con.target = value[(match value.find(":") {
+                                                Some(value) => value,
+                                                None => {
+                                                    println!("Invalid ConMap Option!");
+                                                    return false;
+                                                }
+                                            }) + 1..]
+                        .to_string();
                     rnd_cfg.container_maps.push(tmp_con);
                 }
                 "transcodecontainer" => rnd_cfg.transcode_container = value,
-                "audiochannels" => rnd_cfg.audio_channels = value.parse::<u8>().unwrap(),
+                "audiochannels" => {
+                    rnd_cfg.audio_channels = match value.parse::<u8>() {
+                        Ok(value) => value,
+                        Err(_) => {
+                            println!("Invalid Audio Channel Number!");
+                            return false;
+                        }
+                    }
+                }
                 "transcodeenabled" => {
                     if value == "true" || value == "1" {
                         rnd_cfg.transcode_enabled = true;
@@ -290,8 +414,22 @@ impl ConfigurationHandler {
                 }
                 "transcodecodec" => {
                     let mut tmp_codec: SourceTargetMap = SourceTargetMap::new();
-                    tmp_codec.source = value[..value.find(":").unwrap()].to_string();
-                    tmp_codec.target = value[(value.find(":").unwrap() + 1)..].to_string();
+                    tmp_codec.source = value[..match value.find(":") {
+                                                 Some(value) => value,
+                                                 None => {
+                                                     println!("Invalid TranscodeCodec Option!");
+                                                     return false;
+                                                 }
+                                             }].to_string();
+                    tmp_codec.target = value[(match value.find(":") {
+                                                  Some(value) => value,
+                                                  None => {
+                                                      println!("Invalid TranscodeCodec Option!");
+                                                      return false;
+                                                  }
+                                              }) +
+                                                 1..]
+                        .to_string();
                     rnd_cfg.transcode_codecs.push(tmp_codec);
                 }
                 "audiolanguage" => {
@@ -299,8 +437,21 @@ impl ConfigurationHandler {
                 }
                 "subtitleconnection" => {
                     let mut tmp_sub: SourceTargetMap = SourceTargetMap::new();
-                    tmp_sub.source = value[..value.find(":").unwrap()].to_string();
-                    tmp_sub.target = value[(value.find(":").unwrap() + 1)..].to_string();
+                    tmp_sub.source = value[..match value.find(":") {
+                                               Some(value) => value,
+                                               None => {
+                                                   println!("Invalid SubtitleConnection Option!");
+                                                   return false;
+                                               }
+                                           }].to_string();
+                    tmp_sub.target = value[(match value.find(":") {
+                                                Some(value) => value,
+                                                None => {
+                                                    println!("Invalid SubtitleConnection Option!");
+                                                    return false;
+                                                }
+                                            }) + 1..]
+                        .to_string();
                     rnd_cfg.subtitle_connection.push(tmp_sub);
                 }
                 "encodesubtitles" => {

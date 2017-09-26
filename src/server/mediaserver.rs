@@ -43,6 +43,7 @@ impl MediaServer {
         LOGGER.lock().unwrap().set(
             &cfg_handler.server_configuration.log_path,
             cfg_handler.server_configuration.log_level,
+            daemonize,
         );
 
         // Bring to Background if requested
@@ -51,10 +52,11 @@ impl MediaServer {
             let daemonize = Daemonize::new();
 
             match daemonize.start() {
-                Err(_) => return,
-                Ok(_) => {
-                    println!("Unable to daemonize! Aborting..");
+                Err(e) => {
+                    println!("Unable to daemonize! Reason: {}\nAborting..", e);
+                    return;
                 }
+                Ok(_) => {}
             }
         }
 
@@ -208,8 +210,16 @@ impl MediaServer {
         let mut xml: String = String::new();
 
         if content.find("/connection/").is_some() {
+            LOGGER.lock().unwrap().write_log(
+                "Got Connection Manager Request...",
+                LogLevel::VERBOSE,
+            );
             xml = con_manager.handle_request(&content);
         } else if content.find("/content/").is_some() {
+            LOGGER.lock().unwrap().write_log(
+                "Got Content Directory Request...",
+                LogLevel::VERBOSE,
+            );
             let db = match DB_MANAGER.lock() {
                 Ok(value) => value,
                 Err(_) => {
@@ -223,6 +233,7 @@ impl MediaServer {
             };
             let mut con_dir: ContentDirectory = ContentDirectory::new(&tcfg_handler, &db);
             xml = con_dir.handle_request(&content);
+            println!("CONTENT:\n{}\n", xml);
         } else if content.find("/stream/").is_some() {
             // Streaming
             let id_field: &str = &content[(content.find("/stream/").unwrap() + 8)..];
@@ -248,6 +259,10 @@ impl MediaServer {
 
             return;
         } else if content.find("/files/images/icon.png").is_some() {
+            LOGGER.lock().unwrap().write_log(
+                "Got Icon / PNG Request...",
+                LogLevel::VERBOSE,
+            );
             http::send_file(
                 &content,
                 "/var/lib/slms/icon.png",
@@ -267,6 +282,11 @@ impl MediaServer {
 
             con_manager.send_data(&response, stream);
         } else {
+            LOGGER.lock().unwrap().write_log(
+                "Got Invalid Request. Terminating Connection..",
+                LogLevel::ERROR,
+            );
+
             con_manager.send_data(
                 &http::generate_header(
                     0,
