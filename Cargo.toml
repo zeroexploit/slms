@@ -1,0 +1,12 @@
+[package]
+name = "slms"
+version = "1.0.0"
+authors = ["Jörn Roddelkopf"]
+
+[dependencies]
+chrono = "*"
+lazy_static = "*"
+daemonize="*"
+pnet="*"
+sys-info = "*"
+uuid={version = "*", features = ["v4"]}
