@@ -151,10 +151,6 @@ impl ConfigurationHandler {
             success = false;
         }
 
-        if self.server_configuration.server_interface.len() == 0 {
-            self.server_configuration.server_interface = String::from("eth0"); // CHECK THIS TO DETERMIN REAL DEFAULT INTERFACE
-            success = false;
-        }
 
         if self.server_configuration.server_name.len() == 0 {
             self.server_configuration.server_name = String::from("SLMS");

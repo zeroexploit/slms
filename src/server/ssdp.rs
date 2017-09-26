@@ -25,7 +25,7 @@ impl<'a> SSDPServer<'a> {
     pub fn new(server_cfg: &ServerConfiguration) -> Result<SSDPServer, ()> {
         let ssdp = SSDPServer {
             server_cfg,
-            socket: match UdpSocket::bind((server_cfg.server_ip.as_str(), 1900)) {
+            socket: match UdpSocket::bind(("0.0.0.0", 1900)) {
                 Ok(value) => value,
                 Err(_) => return Err(()),
             },
@@ -98,7 +98,7 @@ impl<'a> SSDPServer<'a> {
                         Err(_) => break,
                     };
 
-                    if request.len() > 10 && &request[..10] == "M-SEARCH *" {
+                    if request.find("M-SEARCH *").is_some() {
                         SSDPServer::send_search_response(
                             match socket_c.try_clone() {
                                 Ok(value) => value,
@@ -353,11 +353,7 @@ impl<'a> SSDPServer<'a> {
     ) {
         let mut message = String::new();
 
-        if request.find("ssdp:all").is_some() ||
-            request
-                .find("urn:schemas-upnp-org:device:MediaServer")
-                .is_some()
-        {
+        if request.find("ssdp:all").is_some() {
             message = SSDPServer::get_search_response_package(
                 "urn:schemas-upnp-org:device:MediaServer:1",
                 &format!("uuid:{}::urn:schemas-upnp-org:device:MediaServer:1", uuid),
@@ -415,6 +411,18 @@ impl<'a> SSDPServer<'a> {
                     "uuid:{}::urn:microsoft.com:service:X_MS_MediaReceiverRegistrar:1",
                     uuid
                 ),
+                "description.xml",
+                ip,
+                port,
+                tag,
+            )
+        } else if request
+                   .find("urn:schemas-upnp-org:device:MediaServer")
+                   .is_some()
+        {
+            message = SSDPServer::get_search_response_package(
+                "urn:schemas-upnp-org:device:MediaServer:1",
+                &format!("uuid:{}::urn:schemas-upnp-org:device:MediaServer:1", uuid),
                 "description.xml",
                 ip,
                 port,

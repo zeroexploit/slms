@@ -11,9 +11,8 @@ use server::SSDPServer;
 use upnp::{ConnectionManager, ContentDirectory};
 use provider::http;
 
-
-lazy_static! { static ref DB_MANAGER: Mutex<DatabaseManager> = Mutex::new(DatabaseManager::new()); }
 lazy_static! { static ref LOGGER: Mutex<Logger> = Mutex::new(Logger::new()); }
+lazy_static! { static ref DB_MANAGER: Mutex<DatabaseManager> = Mutex::new(DatabaseManager::new()); }
 
 pub struct MediaServer {}
 
@@ -79,6 +78,7 @@ impl MediaServer {
                 value.load(
                     &cfg_handler.server_configuration.media_db_path,
                     cfg_handler.server_configuration.share_dirs.clone(),
+                    LOGGER.lock().unwrap().clone(),
                 )
             }
             Err(_) => {

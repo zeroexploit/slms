@@ -20,6 +20,7 @@ pub enum LogLevel {
 /// # TO-DO
 /// - Make it thread safe
 /// - Remove Unwrap etc.
+#[derive(Clone)]
 pub struct Logger {
     pub logfile_path: String,
     pub log_level: LogLevel,
@@ -56,12 +57,17 @@ impl Logger {
         if log_level as u8 <= self.log_level as u8 {
             let now = Local::now();
 
-            let mut file = OpenOptions::new()
+            let mut file = match OpenOptions::new()
                 .create(true)
                 .write(true)
                 .append(true)
-                .open(&self.logfile_path)
-                .unwrap();
+                .open(&self.logfile_path) {
+                Ok(value) => value,
+                Err(_) => {
+                    println!("{}: {}", now.format("%d.%m.%Y %H:%M:%S.%f"), message);
+                    return;
+                }
+            };
 
             if let Err(_) = writeln!(file, "{}: {}", now.format("%d.%m.%Y %H:%M:%S.%f"), message) {
                 println!("{}: {}", now.format("%d.%m.%Y %H:%M:%S.%f"), message);
