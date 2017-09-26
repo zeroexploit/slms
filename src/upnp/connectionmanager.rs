@@ -235,8 +235,8 @@ impl<'a> ConnectionManager<'a> {
                         <iconList>
                                 <icon>
                                         <mimetype>image/png</mimetype>
-                                        <width>120</width>
-                                        <height>120</height>
+                                        <width>128</width>
+                                        <height>128</height>
                                         <depth>24</depth>
                                         <url>/files/images/icon.png</url>
                                 </icon>

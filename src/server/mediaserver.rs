@@ -233,7 +233,6 @@ impl MediaServer {
             };
             let mut con_dir: ContentDirectory = ContentDirectory::new(&tcfg_handler, &db);
             xml = con_dir.handle_request(&content);
-            println!("CONTENT:\n{}\n", xml);
         } else if content.find("/stream/").is_some() {
             // Streaming
             let id_field: &str = &content[(content.find("/stream/").unwrap() + 8)..];
