@@ -2,6 +2,7 @@ use std::net::{UdpSocket, SocketAddr, Ipv4Addr, IpAddr};
 use std::{str, time, thread};
 
 use configuration::ServerConfiguration;
+use tools::{Logger, LogLevel};
 
 /// # SSDP Server
 ///
@@ -13,6 +14,7 @@ use configuration::ServerConfiguration;
 pub struct SSDPServer<'a> {
     server_cfg: &'a ServerConfiguration,
     socket: UdpSocket,
+    logger: Logger,
 }
 
 impl<'a> SSDPServer<'a> {
@@ -22,13 +24,17 @@ impl<'a> SSDPServer<'a> {
     /// # Arguments
     ///
     /// * `server_cfg` - The Servers Configuration
-    pub fn new(server_cfg: &ServerConfiguration) -> Result<SSDPServer, ()> {
+    pub fn new(server_cfg: &ServerConfiguration, logger: Logger) -> Result<SSDPServer, ()> {
         let ssdp = SSDPServer {
             server_cfg,
-            socket: match UdpSocket::bind((server_cfg.server_ip.as_str(), 1900)) {
+            socket: match UdpSocket::bind(("0.0.0.0", 1900)) {
                 Ok(value) => value,
-                Err(_) => return Err(()),
+                Err(_) => {
+                    logger.write_log("SSDP: Unable to bind to Interface!", LogLevel::ERROR);
+                    return Err(());
+                }
             },
+            logger,
         };
 
         Ok(ssdp)
@@ -39,31 +45,70 @@ impl<'a> SSDPServer<'a> {
     /// Runs in an new Thread and spawns another to periodically
     /// announce the Services to the Network.
     pub fn discover(&self) -> Result<(), ()> {
+        // Join Multicast Group and disable Loopback
+        self.logger.write_log(
+            "SSDP: Joining Multicast Group",
+            LogLevel::DEBUG,
+        );
+
         match self.socket.set_multicast_loop_v4(false) {
             Ok(_) => {}
-            Err(_) => return Err(()),
+            Err(_) => {
+                self.logger.write_log(
+                    "SSDP: Unable to set Loopback to false...",
+                    LogLevel::ERROR,
+                );
+                return Err(());
+            }
         };
 
         match self.socket.join_multicast_v4(
             &Ipv4Addr::new(239, 255, 255, 250),
             &match self.server_cfg.server_ip.parse::<Ipv4Addr>() {
                 Ok(value) => value,
-                Err(_) => return Err(()),
+                Err(_) => {
+                    self.logger.write_log(
+                        "SSDP: Unable to parse Multicast Group...",
+                        LogLevel::ERROR,
+                    );
+                    return Err(());
+                }
             },
         ) {
             Ok(_) => {}
-            Err(_) => return Err(()),
+            Err(_) => {
+                self.logger.write_log(
+                    "SSDP: Unable to join Multicast Group...",
+                    LogLevel::ERROR,
+                );
+                return Err(());
+            }
         };
 
+        // Copy Socket and Configuration to use in Notify Thread
         let socket_c = match self.socket.try_clone() {
             Ok(value) => value,
-            Err(_) => return Err(()),
+            Err(_) => {
+                self.logger.write_log(
+                    "SSDP: Unable to clone Socket to notify Thread...",
+                    LogLevel::ERROR,
+                );
+                return Err(());
+            }
         };
         let cfg_ip = self.server_cfg.server_ip.clone();
         let cfg_port = self.server_cfg.server_port;
         let cfg_uuid = self.server_cfg.server_uuid.clone();
         let cfg_tag = self.server_cfg.server_tag.clone();
 
+        self.logger.write_log(
+            "SSDP: Sending Notify Packages...",
+            LogLevel::DEBUG,
+        );
+
+        let logg: Logger = self.logger.clone();
+
+        // Create Thread to send Alive Packages regulary
         thread::spawn(move || {
             SSDPServer::send_notify_packages(
                 socket_c,
@@ -71,38 +116,75 @@ impl<'a> SSDPServer<'a> {
                 &cfg_ip,
                 &cfg_port.to_string(),
                 &cfg_tag,
+                logg,
             );
         });
 
+        // Copy Socket and Data to use in Search Response Thread
         let socket_c = match self.socket.try_clone() {
             Ok(value) => value,
-            Err(_) => return Err(()),
+            Err(_) => {
+                self.logger.write_log(
+                    "SSDP: Unable to clone Socket to SEARCH Response Thread...",
+                    LogLevel::ERROR,
+                );
+                return Err(());
+            }
         };
         let cfg_ip = self.server_cfg.server_ip.clone();
         let cfg_port = self.server_cfg.server_port;
         let cfg_uuid = self.server_cfg.server_uuid.clone();
         let cfg_tag = self.server_cfg.server_tag.clone();
 
+        self.logger.write_log(
+            "SSDP: Waiting for SEARCH Requests...",
+            LogLevel::DEBUG,
+        );
+
+        let logg: Logger = self.logger.clone();
+
+        // Create Thread to answer Search Request and not block main Thread
         thread::spawn(move || {
             let mut buffer = [0; 4096];
 
             loop {
+                // Receive Data
                 let (amt, src) = match socket_c.recv_from(&mut buffer) {
                     Ok(value) => value,
-                    Err(_) => break,
+                    Err(_) => {
+                        logg.write_log(
+                            "SSDP: Unable to receive on UDP Socket from Multicast Group...",
+                            LogLevel::ERROR,
+                        );
+                        break;
+                    }
                 };
 
+                // Answer if Data is available
                 if amt > 0 {
                     let request = match str::from_utf8(&buffer[..amt]) {
                         Ok(value) => value,
-                        Err(_) => break,
+                        Err(_) => {
+                            logg.write_log(
+                                "SSDP: Unable to convert Request to UTF-8...",
+                                LogLevel::ERROR,
+                            );
+                            break;
+                        }
                     };
 
-                    if request.len() > 10 && &request[..10] == "M-SEARCH *" {
+                    // Only react to M-SEARCH Requests
+                    if request.find("M-SEARCH *").is_some() {
                         SSDPServer::send_search_response(
                             match socket_c.try_clone() {
                                 Ok(value) => value,
-                                Err(_) => break,
+                                Err(_) => {
+                                    logg.write_log(
+                                        "SSDP: Unable to clone Socket to Search Response Task...",
+                                        LogLevel::ERROR,
+                                    );
+                                    break;
+                                }
                             },
                             src,
                             request,
@@ -110,22 +192,36 @@ impl<'a> SSDPServer<'a> {
                             &cfg_ip,
                             &cfg_port.to_string(),
                             &cfg_tag,
+                            logg.clone(),
                         );
                     }
                 }
             }
         });
 
+        // Exit with Ok
         Ok(())
     }
 
     /// Removes the Services from the Network using ByeBye Signals.
     /// This will stop the SSDP Server.
     pub fn byebye(&self) {
+
+        self.logger.write_log(
+            "SSDP: Sending ByeBye Signals...",
+            LogLevel::DEBUG,
+        );
+
         let maddr = SocketAddr::new(
             match "239.255.255.250".parse::<IpAddr>() {
                 Ok(value) => value,
-                Err(_) => return,
+                Err(_) => {
+                    self.logger.write_log(
+                        "SSDP: Unable to parse Multicast Address...",
+                        LogLevel::ERROR,
+                    );
+                    return;
+                }
             },
             1900,
         );
@@ -143,7 +239,13 @@ impl<'a> SSDPServer<'a> {
             maddr,
         ) {
             Ok(_) => {}
-            Err(_) => return,
+            Err(_) => {
+                self.logger.write_log(
+                    "SSDP: Unable to send RootDevice ByeBye to Multicast Address...",
+                    LogLevel::ERROR,
+                );
+                return;
+            }
         };
 
         match self.socket.send_to(
@@ -159,7 +261,13 @@ impl<'a> SSDPServer<'a> {
             maddr,
         ) {
             Ok(_) => {}
-            Err(_) => return,
+            Err(_) => {
+                self.logger.write_log(
+                    "SSDP: Unable to send UUID ByeBye to Multicast Address...",
+                    LogLevel::ERROR,
+                );
+                return;
+            }
         };
 
         match self.socket.send_to(
@@ -178,7 +286,13 @@ impl<'a> SSDPServer<'a> {
             maddr,
         ) {
             Ok(_) => {}
-            Err(_) => return,
+            Err(_) => {
+                self.logger.write_log(
+                    "SSDP: Unable to send MediaServer ByeBye to Multicast Address...",
+                    LogLevel::ERROR,
+                );
+                return;
+            }
         };
 
         match self.socket.send_to(
@@ -197,7 +311,13 @@ impl<'a> SSDPServer<'a> {
             maddr,
         ) {
             Ok(_) => {}
-            Err(_) => return,
+            Err(_) => {
+                self.logger.write_log(
+                    "SSDP: Unable to send ContentDirectory ByeBye to Multicast Address...",
+                    LogLevel::ERROR,
+                );
+                return;
+            }
         };
 
         match self.socket.send_to(
@@ -216,7 +336,13 @@ impl<'a> SSDPServer<'a> {
             maddr,
         ) {
             Ok(_) => {}
-            Err(_) => return,
+            Err(_) => {
+                self.logger.write_log(
+                    "SSDP: Unable to send ConnectionManager ByeBye to Multicast Address...",
+                    LogLevel::ERROR,
+                );
+                return;
+            }
         };
     }
 
@@ -231,16 +357,34 @@ impl<'a> SSDPServer<'a> {
     /// * `ip` - IP Address of the Server
     /// * `port` - Port the Server listens on
     /// * `tag` - The Servers HTTP Server Header Tag
-    fn send_notify_packages(socket: UdpSocket, uuid: &str, ip: &str, port: &str, tag: &str) {
+    fn send_notify_packages(
+        socket: UdpSocket,
+        uuid: &str,
+        ip: &str,
+        port: &str,
+        tag: &str,
+        logger: Logger,
+    ) {
         let maddr = SocketAddr::new(
             match "239.255.255.250".parse::<IpAddr>() {
                 Ok(value) => value,
-                Err(_) => return,
+                Err(_) => {
+                    logger.write_log(
+                        "SSDP: Unable to parse Multicast Address...",
+                        LogLevel::ERROR,
+                    );
+                    return;
+                }
             },
             1900,
         );
 
         loop {
+            logger.write_log(
+                "SSDP: Sending Alive to Multicast Address...",
+                LogLevel::VERBOSE,
+            );
+
             match socket.send_to(
                 SSDPServer::get_notify_package(
                     "alive",
@@ -254,7 +398,13 @@ impl<'a> SSDPServer<'a> {
                 maddr,
             ) {
                 Ok(_) => {}
-                Err(_) => return,
+                Err(_) => {
+                    logger.write_log(
+                        "SSDP: Unable to send RootDevice Alive to Multicast Address...",
+                        LogLevel::ERROR,
+                    );
+                    return;
+                }
             };
 
             match socket.send_to(
@@ -270,7 +420,13 @@ impl<'a> SSDPServer<'a> {
                 maddr,
             ) {
                 Ok(_) => {}
-                Err(_) => return,
+                Err(_) => {
+                    logger.write_log(
+                        "SSDP: Unable to send UUID Alive to Multicast Address...",
+                        LogLevel::ERROR,
+                    );
+                    return;
+                }
             };
 
             match socket.send_to(
@@ -286,7 +442,13 @@ impl<'a> SSDPServer<'a> {
                 maddr,
             ) {
                 Ok(_) => {}
-                Err(_) => return,
+                Err(_) => {
+                    logger.write_log(
+                        "SSDP: Unable to send MediaServer Alive to Multicast Address...",
+                        LogLevel::ERROR,
+                    );
+                    return;
+                }
             };
 
             match socket.send_to(
@@ -305,7 +467,13 @@ impl<'a> SSDPServer<'a> {
                 maddr,
             ) {
                 Ok(_) => {}
-                Err(_) => return,
+                Err(_) => {
+                    logger.write_log(
+                        "SSDP: Unable to send ContentDirectory Alive to Multicast Address...",
+                        LogLevel::ERROR,
+                    );
+                    return;
+                }
             };
 
             match socket.send_to(
@@ -324,8 +492,19 @@ impl<'a> SSDPServer<'a> {
                 maddr,
             ) {
                 Ok(_) => {}
-                Err(_) => return,
+                Err(_) => {
+                    logger.write_log(
+                        "SSDP: Unable to send ConnectionManager Alive to Multicast Address...",
+                        LogLevel::ERROR,
+                    );
+                    return;
+                }
             };
+
+            logger.write_log(
+                "SSDP: Waiting 180s to resend Alive Packages...",
+                LogLevel::ERROR,
+            );
 
             thread::sleep(time::Duration::from_secs(180));
         }
@@ -350,14 +529,11 @@ impl<'a> SSDPServer<'a> {
         ip: &str,
         port: &str,
         tag: &str,
+        logger: Logger,
     ) {
         let mut message = String::new();
 
-        if request.find("ssdp:all").is_some() ||
-            request
-                .find("urn:schemas-upnp-org:device:MediaServer")
-                .is_some()
-        {
+        if request.find("ssdp:all").is_some() {
             message = SSDPServer::get_search_response_package(
                 "urn:schemas-upnp-org:device:MediaServer:1",
                 &format!("uuid:{}::urn:schemas-upnp-org:device:MediaServer:1", uuid),
@@ -420,12 +596,34 @@ impl<'a> SSDPServer<'a> {
                 port,
                 tag,
             )
+        } else if request
+                   .find("urn:schemas-upnp-org:device:MediaServer")
+                   .is_some()
+        {
+            message = SSDPServer::get_search_response_package(
+                "urn:schemas-upnp-org:device:MediaServer:1",
+                &format!("uuid:{}::urn:schemas-upnp-org:device:MediaServer:1", uuid),
+                "description.xml",
+                ip,
+                port,
+                tag,
+            )
         }
 
         if message.len() > 0 {
+            logger.write_log(
+                &format!("SSDP: Sending Search Response to {}", receiver),
+                LogLevel::VERBOSE,
+            );
             match socket.send_to(message.as_bytes(), receiver) {
                 Ok(_) => {}
-                Err(_) => return,
+                Err(_) => {
+                    logger.write_log(
+                        &format!("SSDP: Unable to send Search Response to {}...", receiver),
+                        LogLevel::ERROR,
+                    );
+                    return;
+                }
             };
         }
     }

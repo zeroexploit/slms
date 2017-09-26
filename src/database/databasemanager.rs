@@ -6,7 +6,7 @@ use std::time;
 
 use super::folder::Folder;
 use media::{Item, Container, MediaType, Stream, StreamType, Thumbnail, mediaparser};
-use tools::{NameValuePair, XMLParser, XMLEntry};
+use tools::{NameValuePair, XMLParser, XMLEntry, Logger, LogLevel};
 
 
 /// # DatabaseManager
@@ -36,6 +36,7 @@ pub struct DatabaseManager {
     share_folders: Vec<String>,
     media_formats: Vec<Container>,
     latest_id: u64,
+    logger: Logger,
 }
 
 impl DatabaseManager {
@@ -50,10 +51,11 @@ impl DatabaseManager {
     ///
     /// * `db_path` - Where to store the XML Database File
     /// * `shares` - List of Pathes to share theough SLMS
-    pub fn load(&mut self, db_path: &str, shares: Vec<String>) {
+    pub fn load(&mut self, db_path: &str, shares: Vec<String>, logger: Logger) {
         self.path = db_path.to_string();
         self.share_folders = shares;
         self.latest_id = 1;
+        self.logger = logger;
     }
     /// This function creates a new DatabaseManager Structure that holds
     /// the entire Media Database and also manages it. The Path to store
@@ -69,6 +71,7 @@ impl DatabaseManager {
             share_folders: Vec::new(),
             media_formats: Vec::new(),
             latest_id: 1,
+            logger: Logger::new(),
         }
     }
 
@@ -90,14 +93,33 @@ impl DatabaseManager {
         // Load Database from File System
         self.load_database();
 
+        self.logger.write_log(
+            "DB: All Items loaded. Negotiating with the File System...",
+            LogLevel::INFORMATION,
+        );
+
         // Parse all Shares and update Database
         for share in &self.share_folders.clone() {
             self.parse_folder(&share, 0);
         }
 
+        self.logger.write_log(
+            "DB: Refreshed Database. Saving Changes...",
+            LogLevel::INFORMATION,
+        );
+
         // Store Database to File System
-        println!("Storing Database...");
         self.save_database(true);
+
+        // Ouput Information
+        self.logger.write_log(
+            &format!(
+                "DB: Database Ready. There is a total of {} Folders and {} Files available.",
+                self.media_folders.len(),
+                self.media_item.len()
+            ),
+            LogLevel::INFORMATION,
+        );
     }
 
     /// Parses a Folder with the given Format. Calls the same function
@@ -119,13 +141,23 @@ impl DatabaseManager {
     /// * `path` - Path to the Folder that should be parsed
     /// * `parent_id` - Id of the Parent Folder this one lays in
     fn parse_folder(&mut self, path: &str, parent_id: u64) {
+        self.logger.write_log(
+            &format!("DB - parse_folder(): Parsing Folder: {}", path),
+            LogLevel::DEBUG,
+        );
+
         // If the path does not exits -> return
         if path.is_empty() || self.does_exist(path) == false {
+            self.logger.write_log(
+                &format!("DB - parse_folder(): Unable to parse Folder: {}", path),
+                LogLevel::ERROR,
+            );
             return;
         }
 
         let mut is_new: bool = false;
         let mut id: u64 = 0;
+        let logg: Logger = self.logger.clone();
 
         // Check if that folder is in Database
         match self.get_folder_from_path(path) {
@@ -135,10 +167,24 @@ impl DatabaseManager {
                     folder.last_modified = DatabaseManager::get_last_modified(path);
                     folder.element_count = DatabaseManager::get_elements(path);
                     id = folder.id;
+                    logg.write_log(
+                        &format!(
+                            "DB - parse_folder(): Folder: {} was modified. Updated DB Entry...",
+                            path
+                        ),
+                        LogLevel::VERBOSE,
+                    );
                 }
             }
             Err(_) => {
                 is_new = true;
+                logg.write_log(
+                    &format!(
+                        "DB - parse_folder(): Folder: {} is new. Creating new DB Entry...",
+                        path
+                    ),
+                    LogLevel::VERBOSE,
+                );
             }
         }
 
@@ -152,17 +198,39 @@ impl DatabaseManager {
             if &path[path.len() - 1..] == "/" {
                 folder.title = match path[..path.len() - 1].split("/").last() {
                     Some(value) => value.to_string(),
-                    None => return,
+                    None => {
+                        self.logger.write_log(
+                            &format!(
+                                "DB - parse_folder(): Unable to Split String: {}",
+                                path
+                            ),
+                            LogLevel::ERROR,
+                        );
+                        return;
+                    }
                 };
             } else {
                 folder.title = match path.split("/").last() {
                     Some(value) => value.to_string(),
-                    None => return,
+                    None => {
+                        self.logger.write_log(
+                            &format!(
+                                "DB - parse_folder(): Unable to Split String: {}",
+                                path
+                            ),
+                            LogLevel::ERROR,
+                        );
+                        return;
+                    }
                 };
             }
 
             // Skip Folders that are hidden
             if &folder.title[..1] == "." {
+                self.logger.write_log(
+                    &format!("DB - parse_folder(): Skipping hidden Folder: {}", path),
+                    LogLevel::DEBUG,
+                );
                 return;
             }
 
@@ -176,7 +244,17 @@ impl DatabaseManager {
         // Go through all Elements inside this Folder and add them
         let paths = match fs::read_dir(path) {
             Ok(value) => value,
-            Err(_) => return,
+            Err(e) => {
+                self.logger.write_log(
+                    &format!(
+                        "DB - parse_folder(): Unable to access Elements in: {} - Reason: {}",
+                        path,
+                        e
+                    ),
+                    LogLevel::ERROR,
+                );
+                return;
+            }
         };
 
         for path in paths {
@@ -185,7 +263,13 @@ impl DatabaseManager {
                     let ele_path = element.path();
                     let ele_str = match ele_path.to_str() {
                         Some(value) => value,
-                        None => continue,
+                        None => {
+                            self.logger.write_log(
+                                &format!("DB - parse_folder(): Unable to convert to str"),
+                                LogLevel::ERROR,
+                            );
+                            continue;
+                        }
                     };
 
                     // If this is another folder -> parse it too
@@ -196,19 +280,31 @@ impl DatabaseManager {
                         let mut is_new = false;
 
                         // Check if already existing
-
                         match self.get_item_from_path(ele_str) {
                             Ok(some) => {
                                 // Check if something changed
                                 if DatabaseManager::get_last_modified(ele_str) >
                                     some.last_modified
                                 {
+                                    logg.write_log(
+					                &format!("DB - parse_folder(): File: {} was modified. Update DB Entry...", ele_str),
+					                LogLevel::VERBOSE,
+					            );
                                     // Reparse the item
-                                    mediaparser::parse_file(ele_str, some);
+                                    if !mediaparser::parse_file(ele_str, some) {
+                                        logg.write_log(
+						                &format!("DB - parse_folder(): Unable to parse and update File: {} !", ele_str),
+						                LogLevel::ERROR,
+						            );
+                                    }
                                 }
                             }
                             Err(_) => {
                                 is_new = true;
+                                logg.write_log(
+					                &format!("DB - parse_folder(): Found new File: {}. Creating new DB Entry...", ele_str),
+					                LogLevel::VERBOSE,
+					            );
                             }
                         }
 
@@ -220,17 +316,42 @@ impl DatabaseManager {
 
                                 item.parent_id = id;
                                 // Skip hidden Files
-                                if &item.meta_data.title[..1] != "." {
-                                    self.media_item.push(item);
+                                if item.meta_data.file_name.len() > 0 {
+                                    if &item.meta_data.file_name[..1] == "." {
+                                        self.logger.write_log(
+                                            &format!(
+                                                "DB - load_database(): Skipping hidden File: {}",
+                                                ele_str
+                                            ),
+                                            LogLevel::DEBUG,
+                                        );
+
+                                    } else {
+                                        self.media_item.push(item);
+                                    }
+                                } else {
+                                    self.logger.write_log(&format!("DB - load_database(): Unable to determine Filename for: {}", ele_str), LogLevel::ERROR);
                                 }
                             } else {
-                                // Do something
-                                println!("Can not parse: {}", ele_str);
+                                self.logger.write_log(
+                                    &format!(
+                                        "DB - load_database(): Unable to parse File: {}",
+                                        ele_str
+                                    ),
+                                    LogLevel::ERROR,
+                                );
                             }
                         }
                     }
                 }
-                Err(_) => {
+                Err(e) => {
+                    self.logger.write_log(
+                        &format!(
+                            "DB - load_database(): Unable to access Sub Elements! - Reason: {}",
+                            e
+                        ),
+                        LogLevel::ERROR,
+                    );
                     continue;
                 }
             }
@@ -408,12 +529,31 @@ impl DatabaseManager {
 
         let mut db_file = match File::create(&self.path) {
             Ok(some) => some,
-            Err(_) => return,
+            Err(e) => {
+                self.logger.write_log(
+                    &format!(
+                        "DB - load_database(): Unable to create DB File: {} - Reason: {}",
+                        self.path,
+                        e
+                    ),
+                    LogLevel::ERROR,
+                );
+                return;
+            }
         };
 
         match db_file.write(xml_parser.xml_content.as_bytes()) {
             Ok(_) => {}
-            Err(_) => {}
+            Err(e) => {
+                self.logger.write_log(
+                    &format!(
+                        "DB - load_database(): Unable to write DB File: {} - Reason: {}",
+                        self.path,
+                        e
+                    ),
+                    LogLevel::ERROR,
+                );
+            }
         }
     }
 
@@ -445,30 +585,87 @@ impl DatabaseManager {
     /// something has changed on boot up time.
     fn load_database(&mut self) {
         // Open Database File
+        self.logger.write_log(
+            &format!("DB - load_database(): Open Database File: {}", self.path),
+            LogLevel::DEBUG,
+        );
         let mut db_file = match File::open(&self.path) {
             Ok(some) => some,
-            Err(_) => return,
+            Err(e) => {
+                self.logger.write_log(
+                    &format!(
+                        "DB - load_database(): Unable to Open Database File: {} - Reason: {}",
+                        self.path,
+                        e
+                    ),
+                    LogLevel::ERROR,
+                );
+                return;
+            }
         };
+
+        self.logger.write_log(
+            &format!("DB - load_database(): Reading Database File Content"),
+            LogLevel::VERBOSE,
+        );
+
         let mut contents = String::new();
         match db_file.read_to_string(&mut contents) {
             Ok(_) => {}
-            Err(_) => return,
+            Err(e) => {
+                self.logger.write_log(
+                    &format!(
+                        "DB - load_database(): Unable to read from Database File: {} - Reason: {}",
+                        self.path,
+                        e
+                    ),
+                    LogLevel::ERROR,
+                );
+                return;
+            }
         }
+
+        self.logger.write_log(
+            &format!("DB - load_database(): Content loaded. Parsing XML..."),
+            LogLevel::VERBOSE,
+        );
 
         let xml_parser: XMLParser = XMLParser::open(&contents);
         let mut root_xml: XMLEntry = XMLEntry::new();
 
+        self.logger.write_log(
+            &format!(
+                "DB - load_database(): XML loaded. Moving Root and Formats to Memory..."
+            ),
+            LogLevel::VERBOSE,
+        );
+
+
         // Read Root and Format Tags
         for entry in xml_parser.xml_entries {
             match entry.tag.as_ref() {
-                "root" => root_xml = entry,
+                "root" => {
+                    self.logger.write_log(
+                        "DB - load_database(): Found \"root\"",
+                        LogLevel::VERBOSE,
+                    );
+                    root_xml = entry;
+                }
                 "format" => {
                     let mut media_container: Container = Container::new();
                     media_container.id =
                         match XMLParser::get_value_from_name(&entry.attributes, "id")
                             .parse::<u64>() {
                             Ok(value) => value,
-                            Err(_) => continue,
+                            Err(_) => {
+                                self.logger.write_log(
+                                    &format!(
+                        "DB - load_database(): Unable to parse Format Id...",
+                    ),
+                                    LogLevel::ERROR,
+                                );
+                                continue;
+                            }
                         };
                     media_container.name =
                         XMLParser::get_value_from_name(&entry.attributes, "name");
@@ -493,12 +690,25 @@ impl DatabaseManager {
                         }
                     }
 
+                    self.logger.write_log(
+                        &format!(
+                        "DB - load_database(): Found Container: {}",
+                        media_container.name,
+                    ),
+                        LogLevel::VERBOSE,
+                    );
+
                     self.media_formats.push(media_container);
                 }
 
                 _ => (),
             }
         }
+
+        self.logger.write_log(
+            &format!("DB - load_database(): Root and Formats loaded. Moving Folders and Items to Memory..."),
+            LogLevel::VERBOSE,
+        );
 
         // Media Folders
         for folder in root_xml.sub_tags {
@@ -508,24 +718,56 @@ impl DatabaseManager {
                     match XMLParser::get_value_from_name(&folder.attributes, "count")
                         .parse::<u32>() {
                         Ok(value) => value,
-                        Err(_) => continue,
+                        Err(_) => {
+                            self.logger.write_log(
+                                &format!(
+                        "DB - load_database(): Unable to parse Folder Element Count...",
+                    ),
+                                LogLevel::ERROR,
+                            );
+                            continue;
+                        }
                     };
                 tmp_folder.id = match XMLParser::get_value_from_name(&folder.attributes, "id")
                     .parse::<u64>() {
                     Ok(value) => value,
-                    Err(_) => continue,
+                    Err(_) => {
+                        self.logger.write_log(
+                            &format!(
+                        "DB - load_database(): Unable to parse Folder Id...",
+                    ),
+                            LogLevel::ERROR,
+                        );
+                        continue;
+                    }
                 };
                 tmp_folder.parent_id =
                     match XMLParser::get_value_from_name(&folder.attributes, "parentId")
                         .parse::<u64>() {
                         Ok(value) => value,
-                        Err(_) => continue,
+                        Err(_) => {
+                            self.logger.write_log(
+                                &format!(
+                        "DB - load_database(): Unable to parse Folder Parent Id...",
+                    ),
+                                LogLevel::ERROR,
+                            );
+                            continue;
+                        }
                     };
                 tmp_folder.last_modified =
                     match XMLParser::get_value_from_name(&folder.attributes, "lastModified")
                         .parse::<u64>() {
                         Ok(value) => value,
-                        Err(_) => continue,
+                        Err(_) => {
+                            self.logger.write_log(
+                                &format!(
+                        "DB - load_database(): Unable to parse Folder last modified Date..",
+                    ),
+                                LogLevel::ERROR,
+                            );
+                            continue;
+                        }
                     };
                 tmp_folder.path = XMLParser::get_value_from_name(&folder.attributes, "path");
                 tmp_folder.title = XMLParser::get_value_from_name(&folder.attributes, "title");
@@ -538,9 +780,32 @@ impl DatabaseManager {
                     if DatabaseManager::get_last_modified(&tmp_folder.path) <=
                         tmp_folder.last_modified
                     {
+                        self.logger.write_log(
+                            &format!(
+                        "DB - load_database(): Folder: {} has not changed...",
+                        tmp_folder.path,
+                    ),
+                            LogLevel::VERBOSE,
+                        );
+                        self.media_folders.push(tmp_folder);
+                    } else {
+                        self.logger.write_log(
+                            &format!(
+                        "DB - load_database(): Folder: {} has changed. Prepare to re-parse...",
+                        tmp_folder.path,
+                    ),
+                            LogLevel::VERBOSE,
+                        );
                         self.media_folders.push(tmp_folder);
                     }
                 } else {
+                    self.logger.write_log(
+                            &format!(
+                        "DB - load_database(): Folder: {} does not exist any longer. Remove from DB...",
+                        tmp_folder.path,
+                    ),
+                            LogLevel::VERBOSE,
+                        );
                     continue;
                 }
             } else if folder.tag == "item" {
@@ -552,18 +817,42 @@ impl DatabaseManager {
                     match XMLParser::get_value_from_name(&folder.attributes, "size")
                         .parse::<u64>() {
                         Ok(value) => value,
-                        Err(_) => continue,
+                        Err(_) => {
+                            self.logger.write_log(
+                                &format!(
+                        "DB - load_database(): Unable to parse Item Size...",
+                    ),
+                                LogLevel::ERROR,
+                            );
+                            continue;
+                        }
                     };
                 tmp_item.id = match XMLParser::get_value_from_name(&folder.attributes, "id")
                     .parse::<u64>() {
                     Ok(value) => value,
-                    Err(_) => continue,
+                    Err(_) => {
+                        self.logger.write_log(
+                            &format!(
+                        "DB - load_database(): Unable to parse Item Id...",
+                    ),
+                            LogLevel::ERROR,
+                        );
+                        continue;
+                    }
                 };
                 tmp_item.last_modified =
                     match XMLParser::get_value_from_name(&folder.attributes, "lastModified")
                         .parse::<u64>() {
                         Ok(value) => value,
-                        Err(_) => continue,
+                        Err(_) => {
+                            self.logger.write_log(
+                                &format!(
+                        "DB - load_database(): Unable to parse Item last modified Date...",
+                    ),
+                                LogLevel::ERROR,
+                            );
+                            continue;
+                        }
                     };
                 tmp_item.media_type = MediaType::from_string(
                     &XMLParser::get_value_from_name(&folder.attributes, "type"),
@@ -572,7 +861,15 @@ impl DatabaseManager {
                     match XMLParser::get_value_from_name(&folder.attributes, "parentId")
                         .parse::<u64>() {
                         Ok(value) => value,
-                        Err(_) => continue,
+                        Err(_) => {
+                            self.logger.write_log(
+                                &format!(
+                        "DB - load_database(): Unable to parse Item Parent Id...",
+                    ),
+                                LogLevel::ERROR,
+                            );
+                            continue;
+                        }
                     };
                 self.set_latest_id(tmp_item.id);
 
@@ -586,21 +883,45 @@ impl DatabaseManager {
                                 "nrAudioChannels",
                             ).parse::<u8>() {
                                 Ok(value) => value,
-                                Err(_) => continue,
+                                Err(_) => {
+                                    self.logger.write_log(
+                                        &format!(
+                        "DB - load_database(): Unable to Stream Audio Channel Number...",
+                    ),
+                                        LogLevel::ERROR,
+                                    );
+                                    continue;
+                                }
                             };
                             tmp_stream.bit_depth = match XMLParser::get_value_from_name(
                                 &stream.attributes,
                                 "bitDepth",
                             ).parse::<u8>() {
                                 Ok(value) => value,
-                                Err(_) => continue,
+                                Err(_) => {
+                                    self.logger.write_log(
+                                        &format!(
+                        "DB - load_database(): Unable to parse Stream Bit Depth...",
+                    ),
+                                        LogLevel::ERROR,
+                                    );
+                                    continue;
+                                }
                             };
                             tmp_stream.bitrate = match XMLParser::get_value_from_name(
                                 &stream.attributes,
                                 "bitrate",
                             ).parse::<u64>() {
                                 Ok(value) => value,
-                                Err(_) => continue,
+                                Err(_) => {
+                                    self.logger.write_log(
+                                        &format!(
+                        "DB - load_database(): Unable to parse Stream Bit Rate...",
+                    ),
+                                        LogLevel::ERROR,
+                                    );
+                                    continue;
+                                }
                             };
                             tmp_stream.codec_name =
                                 XMLParser::get_value_from_name(&stream.attributes, "codecName");
@@ -608,21 +929,45 @@ impl DatabaseManager {
                                 match XMLParser::get_value_from_name(&stream.attributes, "index")
                                     .parse::<u8>() {
                                     Ok(value) => value,
-                                    Err(_) => continue,
+                                    Err(_) => {
+                                        self.logger.write_log(
+                                            &format!(
+                        "DB - load_database(): Unable to parse Stream Index...",
+                    ),
+                                            LogLevel::ERROR,
+                                        );
+                                        continue;
+                                    }
                                 };
                             tmp_stream.is_default = match XMLParser::get_value_from_name(
                                 &stream.attributes,
                                 "isDefault",
                             ).parse::<bool>() {
                                 Ok(value) => value,
-                                Err(_) => continue,
+                                Err(_) => {
+                                    self.logger.write_log(
+                                        &format!(
+                        "DB - load_database(): Unable to parse Stream is_default...",
+                    ),
+                                        LogLevel::ERROR,
+                                    );
+                                    continue;
+                                }
                             };
                             tmp_stream.is_forced = match XMLParser::get_value_from_name(
                                 &stream.attributes,
                                 "isForced",
                             ).parse::<bool>() {
                                 Ok(value) => value,
-                                Err(_) => continue,
+                                Err(_) => {
+                                    self.logger.write_log(
+                                        &format!(
+                        "DB - load_database(): Unable to parse Stream is_forced...",
+                    ),
+                                        LogLevel::ERROR,
+                                    );
+                                    continue;
+                                }
                             };
                             tmp_stream.language =
                                 XMLParser::get_value_from_name(&stream.attributes, "language");
@@ -630,21 +975,45 @@ impl DatabaseManager {
                                 match XMLParser::get_value_from_name(&stream.attributes, "width")
                                     .parse::<u16>() {
                                     Ok(value) => value,
-                                    Err(_) => continue,
+                                    Err(_) => {
+                                        self.logger.write_log(
+                                            &format!(
+                        "DB - load_database(): Unable to parse Stream width...",
+                    ),
+                                            LogLevel::ERROR,
+                                        );
+                                        continue;
+                                    }
                                 };
                             tmp_stream.frame_height = match XMLParser::get_value_from_name(
                                 &stream.attributes,
                                 "height",
                             ).parse::<u16>() {
                                 Ok(value) => value,
-                                Err(_) => continue,
+                                Err(_) => {
+                                    self.logger.write_log(
+                                        &format!(
+                        "DB - load_database(): Unable to parse Stream height...",
+                    ),
+                                        LogLevel::ERROR,
+                                    );
+                                    continue;
+                                }
                             };
                             tmp_stream.sample_rate = match XMLParser::get_value_from_name(
                                 &stream.attributes,
                                 "sampleFrequenzy",
                             ).parse::<u32>() {
                                 Ok(value) => value,
-                                Err(_) => continue,
+                                Err(_) => {
+                                    self.logger.write_log(
+                                        &format!(
+                        "DB - load_database(): Unable to parse Stream Frequenzy...",
+                    ),
+                                        LogLevel::ERROR,
+                                    );
+                                    continue;
+                                }
                             };
                             tmp_stream.stream_type =
                                 StreamType::from_string(
@@ -661,27 +1030,59 @@ impl DatabaseManager {
                                 match XMLParser::get_value_from_name(&stream.attributes, "size")
                                     .parse::<u64>() {
                                     Ok(value) => value,
-                                    Err(_) => continue,
+                                    Err(_) => {
+                                        self.logger.write_log(
+                                            &format!(
+                        "DB - load_database(): Unable to parse Thumbnail Size...",
+                    ),
+                                            LogLevel::ERROR,
+                                        );
+                                        continue;
+                                    }
                                 };
                             tmp_thumb.height = match XMLParser::get_value_from_name(
                                 &stream.attributes,
                                 "height",
                             ).parse::<u16>() {
                                 Ok(value) => value,
-                                Err(_) => continue,
+                                Err(_) => {
+                                    self.logger.write_log(
+                                        &format!(
+                        "DB - load_database(): Unable to parse Thumbnail Height...",
+                    ),
+                                        LogLevel::ERROR,
+                                    );
+                                    continue;
+                                }
                             };
                             tmp_thumb.width =
                                 match XMLParser::get_value_from_name(&stream.attributes, "width")
                                     .parse::<u16>() {
                                     Ok(value) => value,
-                                    Err(_) => continue,
+                                    Err(_) => {
+                                        self.logger.write_log(
+                                            &format!(
+                        "DB - load_database(): Unable to parse Thumbnail Width...",
+                    ),
+                                            LogLevel::ERROR,
+                                        );
+                                        continue;
+                                    }
                                 };
                             tmp_thumb.item_id = match XMLParser::get_value_from_name(
                                 &stream.attributes,
                                 "itemId",
                             ).parse::<u64>() {
                                 Ok(value) => value,
-                                Err(_) => continue,
+                                Err(_) => {
+                                    self.logger.write_log(
+                                        &format!(
+                        "DB - load_database(): Unable to parse Thumbnail Item Id...",
+                    ),
+                                        LogLevel::ERROR,
+                                    );
+                                    continue;
+                                }
                             };
                             tmp_thumb.mime_type =
                                 XMLParser::get_value_from_name(&stream.attributes, "mimeType");
@@ -700,15 +1101,30 @@ impl DatabaseManager {
 
                 // Check if File still exists
                 if self.does_exist(&tmp_item.file_path) {
-                    // Make sure it was not modified -> do not add if so -> Needs to be parsed anyway so we do not need to check the file again
-                    if DatabaseManager::get_last_modified(&tmp_item.file_path) <=
-                        tmp_item.last_modified
-                    {
-                        self.media_item.push(tmp_item);
-                    }
+                    self.logger.write_log(
+                        &format!(
+                            "DB - load_database(): File {} does still exist...",
+                            tmp_item.file_path
+                        ),
+                        LogLevel::VERBOSE,
+                    );
+                    self.media_item.push(tmp_item);
+                } else {
+                    self.logger.write_log(
+                        &format!(
+                            "DB - load_database(): File {} does not exist anymore. Ignoring...",
+                            tmp_item.file_path
+                        ),
+                        LogLevel::VERBOSE,
+                    );
                 }
             }
         }
+
+        self.logger.write_log(
+            &format!("DB - load_database(): All Data loaded into Memory."),
+            LogLevel::VERBOSE,
+        );
     }
 
     /// Takes the given ID and sets it to be the highest one

@@ -11,9 +11,8 @@ use server::SSDPServer;
 use upnp::{ConnectionManager, ContentDirectory};
 use provider::http;
 
-
-lazy_static! { static ref DB_MANAGER: Mutex<DatabaseManager> = Mutex::new(DatabaseManager::new()); }
 lazy_static! { static ref LOGGER: Mutex<Logger> = Mutex::new(Logger::new()); }
+lazy_static! { static ref DB_MANAGER: Mutex<DatabaseManager> = Mutex::new(DatabaseManager::new()); }
 
 pub struct MediaServer {}
 
@@ -44,6 +43,7 @@ impl MediaServer {
         LOGGER.lock().unwrap().set(
             &cfg_handler.server_configuration.log_path,
             cfg_handler.server_configuration.log_level,
+            daemonize,
         );
 
         // Bring to Background if requested
@@ -52,10 +52,11 @@ impl MediaServer {
             let daemonize = Daemonize::new();
 
             match daemonize.start() {
-                Err(_) => return,
-                Ok(_) => {
-                    println!("Unable to daemonize! Aborting..");
+                Err(e) => {
+                    println!("Unable to daemonize! Reason: {}\nAborting..", e);
+                    return;
                 }
+                Ok(_) => {}
             }
         }
 
@@ -79,6 +80,7 @@ impl MediaServer {
                 value.load(
                     &cfg_handler.server_configuration.media_db_path,
                     cfg_handler.server_configuration.share_dirs.clone(),
+                    LOGGER.lock().unwrap().clone(),
                 )
             }
             Err(_) => {
@@ -131,7 +133,10 @@ impl MediaServer {
         );
 
         // Bring up the SSDP Server
-        let ssdp_server: SSDPServer = match SSDPServer::new(&cfg_handler.server_configuration) {
+        let ssdp_server: SSDPServer = match SSDPServer::new(
+            &cfg_handler.server_configuration,
+            LOGGER.lock().unwrap().clone(),
+        ) {
             Ok(value) => value,
             Err(_) => {
                 LOGGER.lock().unwrap().write_log(
@@ -208,8 +213,16 @@ impl MediaServer {
         let mut xml: String = String::new();
 
         if content.find("/connection/").is_some() {
+            LOGGER.lock().unwrap().write_log(
+                "Got Connection Manager Request...",
+                LogLevel::VERBOSE,
+            );
             xml = con_manager.handle_request(&content);
         } else if content.find("/content/").is_some() {
+            LOGGER.lock().unwrap().write_log(
+                "Got Content Directory Request...",
+                LogLevel::VERBOSE,
+            );
             let db = match DB_MANAGER.lock() {
                 Ok(value) => value,
                 Err(_) => {
@@ -248,6 +261,10 @@ impl MediaServer {
 
             return;
         } else if content.find("/files/images/icon.png").is_some() {
+            LOGGER.lock().unwrap().write_log(
+                "Got Icon / PNG Request...",
+                LogLevel::VERBOSE,
+            );
             http::send_file(
                 &content,
                 "/var/lib/slms/icon.png",
@@ -264,9 +281,13 @@ impl MediaServer {
                 http::generate_header(xml.len(), "text/xml", false, &svr_cfg, http::Status::Ok200);
 
             response.push_str(&xml);
-
             con_manager.send_data(&response, stream);
         } else {
+            LOGGER.lock().unwrap().write_log(
+                "Got Invalid Request. Terminating Connection..",
+                LogLevel::ERROR,
+            );
+
             con_manager.send_data(
                 &http::generate_header(
                     0,
