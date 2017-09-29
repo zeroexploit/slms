@@ -503,7 +503,7 @@ impl<'a> SSDPServer<'a> {
 
             logger.write_log(
                 "SSDP: Waiting 180s to resend Alive Packages...",
-                LogLevel::ERROR,
+                LogLevel::VERBOSE,
             );
 
             thread::sleep(time::Duration::from_secs(180));

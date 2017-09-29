@@ -1191,14 +1191,31 @@ impl DatabaseManager {
         if path.exists() { true } else { false }
     }
 
-    /// Returns the List of Folders that got the given Id as Parent Folder
+    /// Returns the List of Folders that got the given Id as Parent Folder.
+    /// If the Folder was changed it will be updated!
     ///
     /// # Arguments
     ///
     /// * `parent_id` - Id of the Element to get the Child-Folders for
-    pub fn get_folder_from_parent(&self, parent_id: u64) -> Vec<Folder> {
+    pub fn get_folder_from_parent(&mut self, parent_id: u64) -> Vec<Folder> {
         let mut res_vec: Vec<Folder> = Vec::new();
 
+        // Find parent Folder and check if something changed
+        for index in 0..self.media_folders.len() {
+            if self.media_folders[index].id == parent_id {
+                // Re-Parse folder if modified
+                if self.media_folders[index].last_modified <
+                    DatabaseManager::get_last_modified(&self.media_folders[index].path)
+                {
+                    let path = self.media_folders[index].path.clone();
+                    self.parse_folder(&path, parent_id);
+                }
+
+                break;
+            }
+        }
+
+        // Find all Folders with the given Parent ID
         for folder in &self.media_folders {
             if folder.parent_id == parent_id {
                 res_vec.push(folder.clone());
@@ -1208,16 +1225,25 @@ impl DatabaseManager {
         res_vec
     }
 
-    /// Returns a List of Items that got the given Id as Parent Folder
+    /// Returns a List of Items that got the given Id as Parent Folder.
+    /// If one of the Items has changed, it will be reparsed!
     ///
     /// # Arguments
     ///
     /// * `parent_id` - Id of the Element to get the Child-Item for
-    pub fn get_items_from_parent(&self, parent_id: u64) -> Vec<Item> {
+    pub fn get_items_from_parent(&mut self, parent_id: u64) -> Vec<Item> {
         let mut res_vec: Vec<Item> = Vec::new();
 
-        for item in &self.media_item {
+        for mut item in &mut self.media_item {
             if item.parent_id == parent_id {
+                // Check if Item has changed
+                if item.last_modified < DatabaseManager::get_last_modified(&item.file_path) {
+                    // If the Item can not be parsed: Skip it
+                    if !mediaparser::parse_file(&item.file_path.clone(), &mut item) {
+                        continue;
+                    }
+                }
+
                 res_vec.push(item.clone());
             }
         }

@@ -40,7 +40,7 @@ impl MediaServer {
         }
 
         // Prepare Logging
-        LOGGER.lock().unwrap().set(
+        LOGGER.lock().expect("Unable to lock Logger!").set(
             &cfg_handler.server_configuration.log_path,
             cfg_handler.server_configuration.log_level,
             daemonize,
@@ -61,15 +61,17 @@ impl MediaServer {
         }
 
         // Ouput to Log File
-        LOGGER.lock().unwrap().write_log(
+        LOGGER.lock().expect("Unable to lock Logger!").write_log(
             &format!(
                 "Simple Linux Media Server Version: {}",
-                option_env!("CARGO_PKG_VERSION").unwrap_or("")
+                option_env!("CARGO_PKG_VERSION").unwrap_or(
+                    "",
+                )
             ),
             LogLevel::INFORMATION,
         );
 
-        LOGGER.lock().unwrap().write_log(
+        LOGGER.lock().expect("Unable to lock Logger!").write_log(
             "Loading Database...",
             LogLevel::INFORMATION,
         );
@@ -80,11 +82,11 @@ impl MediaServer {
                 value.load(
                     &cfg_handler.server_configuration.media_db_path,
                     cfg_handler.server_configuration.share_dirs.clone(),
-                    LOGGER.lock().unwrap().clone(),
+                    LOGGER.lock().expect("Unable to lock Logger!").clone(),
                 )
             }
             Err(_) => {
-                LOGGER.lock().unwrap().write_log(
+                LOGGER.lock().expect("Unable to lock Logger!").write_log(
                     "Unable to get Database Mutex - db.load()!",
                     LogLevel::ERROR,
                 );
@@ -95,7 +97,7 @@ impl MediaServer {
         match DB_MANAGER.lock() {
             Ok(mut value) => value.boot_up(),
             Err(_) => {
-                LOGGER.lock().unwrap().write_log(
+                LOGGER.lock().expect("Unable to lock Logger!").write_log(
                     "Unable to get Database Mutex - db.boot_up()!",
                     LogLevel::ERROR,
                 );
@@ -103,7 +105,7 @@ impl MediaServer {
             }
         }
 
-        LOGGER.lock().unwrap().write_log(
+        LOGGER.lock().expect("Unable to lock Logger!").write_log(
             "Database ready.",
             LogLevel::INFORMATION,
         );
@@ -115,11 +117,15 @@ impl MediaServer {
         )) {
             Ok(value) => value,
             Err(_) => {
-                LOGGER.lock().unwrap().write_log(
+                LOGGER.lock().expect("Unable to lock Logger!").write_log(
                     &format!(
                         "Unable to bind TCP Socket to {}:{}!",
-                        cfg_handler.server_configuration.server_ip,
-                        cfg_handler.server_configuration.server_port
+                        cfg_handler
+                            .server_configuration
+                            .server_ip,
+                        cfg_handler
+                            .server_configuration
+                            .server_port
                     ),
                     LogLevel::ERROR,
                 );
@@ -127,30 +133,31 @@ impl MediaServer {
             }
         };
 
-        LOGGER.lock().unwrap().write_log(
+        LOGGER.lock().expect("Unable to lock Logger!").write_log(
             "Running SSDP Server...",
             LogLevel::INFORMATION,
         );
 
         // Bring up the SSDP Server
-        let ssdp_server: SSDPServer = match SSDPServer::new(
-            &cfg_handler.server_configuration,
-            LOGGER.lock().unwrap().clone(),
-        ) {
-            Ok(value) => value,
-            Err(_) => {
-                LOGGER.lock().unwrap().write_log(
-                    "Unable to create SSDP Server!",
-                    LogLevel::ERROR,
-                );
-                return;
-            }
-        };
+        let ssdp_server: SSDPServer =
+            match SSDPServer::new(
+                &cfg_handler.server_configuration,
+                LOGGER.lock().expect("Unable to lock Logger!").clone(),
+            ) {
+                Ok(value) => value,
+                Err(_) => {
+                    LOGGER.lock().expect("Unable to lock Logger!").write_log(
+                        "Unable to create SSDP Server!",
+                        LogLevel::ERROR,
+                    );
+                    return;
+                }
+            };
 
         match ssdp_server.discover() {
             Ok(_) => {}
             Err(_) => {
-                LOGGER.lock().unwrap().write_log(
+                LOGGER.lock().expect("Unable to lock Logger!").write_log(
                     "Unable to announce Server!",
                     LogLevel::ERROR,
                 );
@@ -158,7 +165,7 @@ impl MediaServer {
             }
         }
 
-        LOGGER.lock().unwrap().write_log(
+        LOGGER.lock().expect("Unable to lock Logger!").write_log(
             "Waiting for incoming Connections...",
             LogLevel::INFORMATION,
         );
@@ -168,7 +175,7 @@ impl MediaServer {
             let mut stream = match stream {
                 Ok(value) => value,
                 Err(_) => {
-                    LOGGER.lock().unwrap().write_log(
+                    LOGGER.lock().expect("Unable to lock Logger!").write_log(
                         "Unable to establish Connection!",
                         LogLevel::ERROR,
                     );
@@ -178,7 +185,7 @@ impl MediaServer {
             let tcfg_handler = cfg_handler.clone();
             let svr_cfg = cfg_handler.server_configuration.clone();
 
-            LOGGER.lock().unwrap().write_log(
+            LOGGER.lock().expect("Unable to lock Logger!").write_log(
                 &format!(
                     "New Connection from: {}",
                     match stream.peer_addr() {
@@ -189,12 +196,13 @@ impl MediaServer {
                 LogLevel::VERBOSE,
             );
 
+            // Create new Thread
             thread::spawn(move || {
                 MediaServer::process_incoming(&mut stream, &svr_cfg, &tcfg_handler);
             });
         }
 
-        LOGGER.lock().unwrap().write_log(
+        LOGGER.lock().expect("Unable to lock Logger!").write_log(
             "Something went wrong. Shutting down!",
             LogLevel::ERROR,
         );
@@ -208,96 +216,116 @@ impl MediaServer {
         svr_cfg: &ServerConfiguration,
         tcfg_handler: &ConfigurationHandler,
     ) {
-        let con_manager: ConnectionManager = ConnectionManager::new(&svr_cfg);
-        let content: String = con_manager.handle_connection(stream);
-        let mut xml: String = String::new();
+        // Loop for Keep-Alive Connections
+        loop {
+            let con_manager: ConnectionManager = ConnectionManager::new(&svr_cfg);
+            let content: String = con_manager.handle_connection(stream);
+            let mut xml: String = String::new();
 
-        if content.find("/connection/").is_some() {
-            LOGGER.lock().unwrap().write_log(
-                "Got Connection Manager Request...",
-                LogLevel::VERBOSE,
-            );
-            xml = con_manager.handle_request(&content);
-        } else if content.find("/content/").is_some() {
-            LOGGER.lock().unwrap().write_log(
-                "Got Content Directory Request...",
-                LogLevel::VERBOSE,
-            );
-            let db = match DB_MANAGER.lock() {
-                Ok(value) => value,
-                Err(_) => {
-                    LOGGER.lock().unwrap().write_log(
-                        "Unable to mutex Database!",
-                        LogLevel::ERROR,
+            if content.find("/connection/").is_some() {
+                LOGGER.lock().expect("Unable to lock Logger!").write_log(
+                    "Got Connection Manager Request...",
+                    LogLevel::VERBOSE,
+                );
+                xml = con_manager.handle_request(&content);
+            } else if content.find("/content/").is_some() {
+                LOGGER.lock().expect("Unable to lock Logger!").write_log(
+                    "Got Content Directory Request...",
+                    LogLevel::VERBOSE,
+                );
+                let mut db = match DB_MANAGER.lock() {
+                    Ok(value) => value,
+                    Err(_) => {
+                        LOGGER.lock().expect("Unable to lock Logger!").write_log(
+                            "Unable to mutex Database!",
+                            LogLevel::ERROR,
+                        );
+                        http::send_error(http::Status::InternalServerError500, &svr_cfg, stream);
+                        return;
+                    }
+                };
+                let mut con_dir: ContentDirectory = ContentDirectory::new(&tcfg_handler, &mut db);
+                xml = con_dir.handle_request(&content);
+            } else if content.find("/stream/").is_some() {
+                // Streaming
+                let id_field: &str = &content[(content.find("/stream/").unwrap() + 8)..];
+                let id: u64 = match id_field[..(match id_field.find(" ") {
+                                                      Some(value) => value,
+                                                      None => {
+                                                          http::send_error(
+                        http::Status::BadRequest400,
+                        &svr_cfg,
+                        stream,
                     );
-                    http::send_error(http::Status::InternalServerError500, &svr_cfg, stream);
-                    return;
-                }
-            };
-            let mut con_dir: ContentDirectory = ContentDirectory::new(&tcfg_handler, &db);
-            xml = con_dir.handle_request(&content);
-        } else if content.find("/stream/").is_some() {
-            // Streaming
-            let id_field: &str = &content[(content.find("/stream/").unwrap() + 8)..];
-            let id: u64 = id_field[..(id_field.find(" ").unwrap())]
-                .parse::<u64>()
-                .unwrap();
+                                                          return;
+                                                      }
+                                                  })].parse::<u64>() {
+                    Ok(value) => value,
+                    Err(_) => {
+                        http::send_error(http::Status::NotFound404, &svr_cfg, stream);
+                        return;
+                    }
+                };
 
-            let item = match DB_MANAGER.lock().unwrap().get_item_direct(id) {
-                Ok(value) => value,
-                Err(_) => {
-                    http::send_error(http::Status::NotFound404, &svr_cfg, stream);
-                    return;
-                }
-            };
+                let item = match DB_MANAGER.lock().unwrap().get_item_direct(id) {
+                    Ok(value) => value,
+                    Err(_) => {
+                        http::send_error(http::Status::NotFound404, &svr_cfg, stream);
+                        return;
+                    }
+                };
 
-            http::send_file(
-                &content,
-                &item.file_path,
-                stream,
-                &svr_cfg,
-                &item.get_mime_type(),
-            );
-
-            return;
-        } else if content.find("/files/images/icon.png").is_some() {
-            LOGGER.lock().unwrap().write_log(
-                "Got Icon / PNG Request...",
-                LogLevel::VERBOSE,
-            );
-            http::send_file(
-                &content,
-                "/var/lib/slms/icon.png",
-                stream,
-                &svr_cfg,
-                "image/png",
-            );
-
-            return;
-        }
-
-        if xml.len() > 0 {
-            let mut response =
-                http::generate_header(xml.len(), "text/xml", false, &svr_cfg, http::Status::Ok200);
-
-            response.push_str(&xml);
-            con_manager.send_data(&response, stream);
-        } else {
-            LOGGER.lock().unwrap().write_log(
-                "Got Invalid Request. Terminating Connection..",
-                LogLevel::ERROR,
-            );
-
-            con_manager.send_data(
-                &http::generate_header(
-                    0,
-                    "text/html",
-                    false,
+                http::send_file(
+                    &content,
+                    &item.file_path,
+                    stream,
                     &svr_cfg,
-                    http::Status::InternalServerError500,
-                ),
-                stream,
-            );
+                    &item.get_mime_type(),
+                );
+
+                return;
+            } else if content.find("/files/images/icon.png").is_some() {
+                LOGGER.lock().unwrap().write_log(
+                    "Got Icon / PNG Request...",
+                    LogLevel::VERBOSE,
+                );
+                http::send_file(
+                    &content,
+                    "/var/lib/slms/icon.png",
+                    stream,
+                    &svr_cfg,
+                    "image/png",
+                );
+
+                return;
+            }
+
+            if xml.len() > 0 {
+                let mut response = http::generate_header(
+                    xml.len(),
+                    "text/xml",
+                    true,
+                    &svr_cfg,
+                    http::Status::Ok200,
+                );
+
+                response.push_str(&xml);
+                con_manager.send_data(&response, stream);
+            } else {
+                LOGGER.lock().expect("Unable to lock Logger!").write_log(
+                    &format!(
+                        "Got Invalid Request from {}. Terminating Connection..",
+                        match stream.peer_addr() {
+                            Ok(value) => value,
+                            Err(_) => continue,
+                        }
+                    ),
+                    LogLevel::ERROR,
+                );
+
+                http::send_error(http::Status::BadRequest400, &svr_cfg, stream);
+                return;
+            }
         }
     }
 

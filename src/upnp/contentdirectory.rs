@@ -12,7 +12,7 @@ use media::Item;
 /// Every Content requested will be gathered and provided here.
 pub struct ContentDirectory<'a, 'b> {
     cfg_handler: &'a ConfigurationHandler,
-    db_handler: &'b DatabaseManager,
+    db_handler: &'b mut DatabaseManager,
     xml_parser: XMLParser,
     system_update_id: u64,
 }
@@ -27,7 +27,7 @@ impl<'a, 'b> ContentDirectory<'a, 'b> {
     /// * `db_handler` - Database Handler that provides Media DB Access
     pub fn new(
         cfg_handler: &'a ConfigurationHandler,
-        db_handler: &'b DatabaseManager,
+        db_handler: &'b mut DatabaseManager,
     ) -> ContentDirectory<'a, 'b> {
         ContentDirectory {
             cfg_handler: cfg_handler,
