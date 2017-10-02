@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use configuration::ConfigurationHandler;
 use database::{DatabaseManager, Folder};
 use tools::{XMLParser, NameValuePair};
@@ -69,6 +70,168 @@ impl<'a, 'b> ContentDirectory<'a, 'b> {
         }
     }
 
+    fn sort_folders(folders: &mut Vec<Folder>, criteria: &str) {
+
+        if criteria.is_empty() {
+            folders.sort_by(|a, b| a.title.cmp(&b.title));
+            return;
+        }
+
+        let orders: Vec<&str> = criteria.split(",").collect();
+
+        folders.sort_by(|a, b| {
+            orders.iter().fold(Ordering::Equal, |acc, &field| {
+                acc.then_with(|| match field {
+                    "+dc:title" => a.title.cmp(&b.title),
+                    "+dc:date" => a.last_modified.cmp(&b.last_modified),
+                    "-dc:title" => a.title.cmp(&b.title).reverse(),
+                    "-dc:date" => a.last_modified.cmp(&b.last_modified).reverse(),
+                    _ => a.title.cmp(&b.title),
+                })
+            })
+        });
+    }
+
+    fn sort_items(items: &mut Vec<Item>, criteria: &str) {
+
+        if criteria.is_empty() {
+            items.sort_by(|a, b| a.meta_data.file_name.cmp(&b.meta_data.file_name));
+            return;
+        }
+
+        let orders: Vec<&str> = criteria.split(",").collect();
+
+        items.sort_by(|a, b| {
+            orders.iter().fold(Ordering::Equal, |acc, &field| {
+                acc.then_with(|| match field {
+                    "+dc:title" => a.meta_data.file_name.cmp(&b.meta_data.file_name),
+                    "+upnp:genre" => a.meta_data.genre.cmp(&b.meta_data.genre),
+                    "+dc:date" => a.last_modified.cmp(&b.last_modified),
+                    "+dc:description" => a.meta_data.description.cmp(&b.meta_data.description),
+                    "+upnp:longDescription" => {
+                        a.meta_data.long_description.cmp(
+                            &b.meta_data.long_description,
+                        )
+                    }
+                    "+upnp:producer" => a.meta_data.producer.cmp(&b.meta_data.producer),
+                    "+upnp:rating" => a.meta_data.rating.cmp(&b.meta_data.rating),
+                    "+upnp:actor" => a.meta_data.actor.cmp(&b.meta_data.actor),
+                    "+upnp:director" => a.meta_data.director.cmp(&b.meta_data.director),
+                    "+dc:publisher" => a.meta_data.publisher.cmp(&b.meta_data.publisher),
+                    "+upnp:album" => a.meta_data.album.cmp(&b.meta_data.album),
+                    "+upnp:originalTrackNumber" => {
+                        a.meta_data.track_number.cmp(&b.meta_data.track_number)
+                    }
+                    "+upnp:playlist" => a.meta_data.playlist.cmp(&b.meta_data.playlist),
+                    "+dc:contributor" => a.meta_data.contributor.cmp(&b.meta_data.contributor),
+                    "+dc:language" => {
+                        if a.meta_data.languages.len() > 0 && b.meta_data.languages.len() > 0 {
+                            a.meta_data.languages.get(0).unwrap().cmp(&b.meta_data
+                                .languages
+                                .get(0)
+                                .unwrap())
+                        } else {
+                            a.meta_data.file_name.cmp(&b.meta_data.file_name)
+                        }
+                    }
+                    "+upnp:artist" => {
+                        if a.meta_data.artists.len() > 0 && b.meta_data.artists.len() > 0 {
+                            a.meta_data.artists.get(0).unwrap().cmp(&b.meta_data
+                                .artists
+                                .get(0)
+                                .unwrap())
+                        } else {
+                            a.meta_data.file_name.cmp(&b.meta_data.file_name)
+                        }
+                    }
+                    "+dc:rights" => {
+                        if a.meta_data.copyrights.len() > 0 && b.meta_data.copyrights.len() > 0 {
+                            a.meta_data.copyrights.get(0).unwrap().cmp(&b.meta_data
+                                .copyrights
+                                .get(0)
+                                .unwrap())
+                        } else {
+                            a.meta_data.file_name.cmp(&b.meta_data.file_name)
+                        }
+                    }
+                    "-dc:title" => a.meta_data.file_name.cmp(&b.meta_data.file_name).reverse(),
+                    "-upnp:genre" => a.meta_data.genre.cmp(&b.meta_data.genre).reverse(),
+                    "-dc:date" => a.last_modified.cmp(&b.last_modified).reverse(),
+                    "-dc:description" => {
+                        a.meta_data
+                            .description
+                            .cmp(&b.meta_data.description)
+                            .reverse()
+                    }
+                    "-upnp:longDescription" => {
+                        a.meta_data
+                            .long_description
+                            .cmp(&b.meta_data.long_description)
+                            .reverse()
+                    }
+                    "-upnp:producer" => a.meta_data.producer.cmp(&b.meta_data.producer).reverse(),
+                    "-upnp:rating" => a.meta_data.rating.cmp(&b.meta_data.rating).reverse(),
+                    "-upnp:actor" => a.meta_data.actor.cmp(&b.meta_data.actor).reverse(),
+                    "-upnp:director" => a.meta_data.director.cmp(&b.meta_data.director).reverse(),
+                    "-dc:publisher" => a.meta_data.publisher.cmp(&b.meta_data.publisher).reverse(),
+                    "-upnp:album" => a.meta_data.album.cmp(&b.meta_data.album).reverse(),
+                    "-upnp:originalTrackNumber" => {
+                        a.meta_data
+                            .track_number
+                            .cmp(&b.meta_data.track_number)
+                            .reverse()
+                    }
+                    "-upnp:playlist" => a.meta_data.playlist.cmp(&b.meta_data.playlist).reverse(),
+                    "-dc:contributor" => {
+                        a.meta_data
+                            .contributor
+                            .cmp(&b.meta_data.contributor)
+                            .reverse()
+                    }
+                    "-dc:language" => {
+                        if a.meta_data.languages.len() > 0 && b.meta_data.languages.len() > 0 {
+                            a.meta_data
+                                .languages
+                                .get(0)
+                                .unwrap()
+                                .cmp(&b.meta_data.languages.get(0).unwrap())
+                                .reverse()
+                        } else {
+                            a.meta_data.file_name.cmp(&b.meta_data.file_name).reverse()
+                        }
+                    }
+                    "-upnp:artist" => {
+                        if a.meta_data.artists.len() > 0 && b.meta_data.artists.len() > 0 {
+                            a.meta_data
+                                .artists
+                                .get(0)
+                                .unwrap()
+                                .cmp(&b.meta_data.artists.get(0).unwrap())
+                                .reverse()
+                        } else {
+                            a.meta_data.file_name.cmp(&b.meta_data.file_name).reverse()
+                        }
+                    }
+                    "-dc:rights" => {
+                        if a.meta_data.copyrights.len() > 0 && b.meta_data.copyrights.len() > 0 {
+                            a.meta_data
+                                .copyrights
+                                .get(0)
+                                .unwrap()
+                                .cmp(&b.meta_data.copyrights.get(0).unwrap())
+                                .reverse()
+                        } else {
+                            a.meta_data.file_name.cmp(&b.meta_data.file_name).reverse()
+                        }
+                    }
+
+                    _ => a.meta_data.file_name.cmp(&b.meta_data.file_name),
+                })
+            })
+        });
+    }
+
+
     /// Handles the Renderers Browse Requests and will generate a List of Results.
     /// if something went wrong this function will return an empty String.
     ///
@@ -130,12 +293,13 @@ impl<'a, 'b> ContentDirectory<'a, 'b> {
             Ok(value) => value,
             Err(_) => return String::new(),
         };
+        let sort_criteria: String = self.find_value_from_name(request, "SortCriteria");
 
         let mut act_count: u64 = 0;
         let mut item_index: usize = start_index;
 
         let mut folders: Vec<Folder> = self.db_handler.get_folder_from_parent(id);
-        folders.sort_by(|a, b| a.title.cmp(&b.title));
+        ContentDirectory::sort_folders(&mut folders, &sort_criteria);
 
         for index in start_index..folders.len() {
             if act_count < requested_count || requested_count == 0 {
@@ -147,7 +311,7 @@ impl<'a, 'b> ContentDirectory<'a, 'b> {
         }
 
         let mut items: Vec<Item> = self.db_handler.get_items_from_parent(id);
-        items.sort_by(|a, b| a.meta_data.file_name.cmp(&b.meta_data.file_name));
+        ContentDirectory::sort_items(&mut items, &sort_criteria);
 
         if act_count > 0 {
             item_index = 0;

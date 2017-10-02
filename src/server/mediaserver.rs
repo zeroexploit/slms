@@ -320,7 +320,7 @@ impl MediaServer {
                             Err(_) => continue,
                         }
                     ),
-                    LogLevel::ERROR,
+                    LogLevel::VERBOSE,
                 );
 
                 http::send_error(http::Status::BadRequest400, &svr_cfg, stream);
