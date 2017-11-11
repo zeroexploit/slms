@@ -147,7 +147,7 @@ impl DatabaseManager {
         );
 
         // If the path does not exits -> return
-        if path.is_empty() || self.does_exist(path) == false {
+        if path.is_empty() || DatabaseManager::does_exist(path) == false {
             self.logger.write_log(
                 &format!("DB - parse_folder(): Unable to parse Folder: {}", path),
                 LogLevel::ERROR,
@@ -459,7 +459,7 @@ impl DatabaseManager {
         for folder in &self.media_folders {
             // Check if folder exists -> skip everything else if not -> there can not be any content if the parent is lost
             if check_changed {
-                if self.does_exist(&folder.path) == false {
+                if DatabaseManager::does_exist(&folder.path) == false {
                     continue;
                 }
             }
@@ -471,7 +471,7 @@ impl DatabaseManager {
         for item in &self.media_item {
             // Check if file exists and was not changed
             if check_changed {
-                if self.does_exist(&item.file_path) {
+                if DatabaseManager::does_exist(&item.file_path) {
                     // Add a File only if nothing has change
                     if DatabaseManager::get_last_modified(&item.file_path) > item.last_modified {
                         continue;
@@ -775,7 +775,7 @@ impl DatabaseManager {
                 self.set_latest_id(tmp_folder.id);
 
                 // Check if folder exists -> skip everything else if not -> there can not be any content if the parent is lost
-                if self.does_exist(&tmp_folder.path) {
+                if DatabaseManager::does_exist(&tmp_folder.path) {
                     // Add a Folder only if nothing has changed but still parse its contents as long as it exists
                     if DatabaseManager::get_last_modified(&tmp_folder.path) <=
                         tmp_folder.last_modified
@@ -1100,7 +1100,7 @@ impl DatabaseManager {
                 }
 
                 // Check if File still exists
-                if self.does_exist(&tmp_item.file_path) {
+                if DatabaseManager::does_exist(&tmp_item.file_path) {
                     self.logger.write_log(
                         &format!(
                             "DB - load_database(): File {} does still exist...",
@@ -1186,7 +1186,7 @@ impl DatabaseManager {
     /// # Arguments
     ///
     /// * `path` - Path to the File or Folder to check the Existance
-    fn does_exist(&self, path: &str) -> bool {
+    fn does_exist(path: &str) -> bool {
         let path = Path::new(path);
         if path.exists() { true } else { false }
     }
@@ -1239,7 +1239,9 @@ impl DatabaseManager {
                 // Check if Item has changed
                 if item.last_modified < DatabaseManager::get_last_modified(&item.file_path) {
                     // If the Item can not be parsed: Skip it
-                    if !mediaparser::parse_file(&item.file_path.clone(), &mut item) {
+                    if !DatabaseManager::does_exist(&item.file_path) ||
+                        !mediaparser::parse_file(&item.file_path.clone(), &mut item)
+                    {
                         continue;
                     }
                 }
