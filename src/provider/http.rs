@@ -5,6 +5,7 @@ use std::fs::{metadata, File};
 use chrono::{Local, Duration};
 
 use configuration::ServerConfiguration;
+use tools::{Logger, LogLevel};
 
 /// # HTTP Status
 ///
@@ -108,6 +109,7 @@ pub fn send_file(
     stream: &mut TcpStream,
     server_cfg: &ServerConfiguration,
     mime: &str,
+    logger: Logger,
 ) {
     // Generate Header
     let metadata = metadata(path);
@@ -240,6 +242,11 @@ pub fn send_file(
                 server_cfg.server_tag,
                 file_size
             ));
+
+            logger.write_log(
+                &format!("Streaming {} to {}", path, stream.peer_addr().unwrap()),
+                LogLevel::INFORMATION,
+            );
         }
     }
     // Send Header

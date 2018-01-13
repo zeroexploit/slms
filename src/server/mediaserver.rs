@@ -281,6 +281,7 @@ impl MediaServer {
                     stream,
                     &svr_cfg,
                     &item.get_mime_type(),
+                    LOGGER.lock().unwrap().clone(),
                 );
 
                 return;
@@ -295,6 +296,7 @@ impl MediaServer {
                     stream,
                     &svr_cfg,
                     "image/png",
+                    LOGGER.lock().unwrap().clone(),
                 );
 
                 return;
