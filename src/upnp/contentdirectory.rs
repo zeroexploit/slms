@@ -295,6 +295,13 @@ impl<'a, 'b> ContentDirectory<'a, 'b> {
         };
         let sort_criteria: String = self.find_value_from_name(request, "SortCriteria");
 
+        // Log the Browsing
+        match self.db_handler.get_folder_direct(id) {
+            Ok(folder) => info!("Browsing {}", folder.path),
+            Err(_) => (),
+        }
+
+
         let mut act_count: u64 = 0;
         let mut item_index: usize = start_index;
 
@@ -417,6 +424,7 @@ impl<'a, 'b> ContentDirectory<'a, 'b> {
 
         match self.db_handler.get_folder_direct(id) {
             Ok(folder) => {
+                info!("Providing Info for {}", folder.path);
                 content.push_str(&folder.generate_upnp_xml());
                 result_nb = 1;
             }

@@ -3,15 +3,15 @@ use std::thread;
 use std::sync::Mutex;
 use daemonize::Daemonize;
 use std::net::TcpStream;
+use simplelog::*;
+use std::fs::File;
 
 use configuration::{ConfigurationHandler, ServerConfiguration};
-use tools::{Logger, LogLevel};
 use database::DatabaseManager;
 use server::SSDPServer;
 use upnp::{ConnectionManager, ContentDirectory};
 use provider::http;
 
-lazy_static! { static ref LOGGER: Mutex<Logger> = Mutex::new(Logger::new()); }
 lazy_static! { static ref DB_MANAGER: Mutex<DatabaseManager> = Mutex::new(DatabaseManager::new()); }
 
 pub struct MediaServer {}
@@ -40,11 +40,23 @@ impl MediaServer {
         }
 
         // Prepare Logging
-        LOGGER.lock().expect("Unable to lock Logger!").set(
-            &cfg_handler.server_configuration.log_path,
-            cfg_handler.server_configuration.log_level,
-            daemonize,
-        );
+        let log_level = match cfg_handler.server_configuration.log_level {
+            1 => LogLevelFilter::Info,
+            2 => LogLevelFilter::Error,
+            3 => LogLevelFilter::Debug,
+            _ => LogLevelFilter::Warn,
+
+        };
+        CombinedLogger::init(vec![
+            TermLogger::new(log_level, Config::default()).unwrap(),
+            WriteLogger::new(
+                log_level,
+                Config::default(),
+                File::create(&cfg_handler.server_configuration.log_path)
+                    .unwrap()
+            ),
+        ]).unwrap();
+
 
         // Bring to Background if requested
         if daemonize {
@@ -61,20 +73,12 @@ impl MediaServer {
         }
 
         // Ouput to Log File
-        LOGGER.lock().expect("Unable to lock Logger!").write_log(
-            &format!(
-                "Simple Linux Media Server Version: {}",
-                option_env!("CARGO_PKG_VERSION").unwrap_or(
-                    "",
-                )
-            ),
-            LogLevel::INFORMATION,
+        info!(
+            "Simple Linux Media Server Version: {}",
+            option_env!("CARGO_PKG_VERSION").unwrap_or("")
         );
 
-        LOGGER.lock().expect("Unable to lock Logger!").write_log(
-            "Loading Database...",
-            LogLevel::INFORMATION,
-        );
+        info!("Loading Database...");
 
         // Bring up the Media Database
         match DB_MANAGER.lock() {
@@ -82,14 +86,10 @@ impl MediaServer {
                 value.load(
                     &cfg_handler.server_configuration.media_db_path,
                     cfg_handler.server_configuration.share_dirs.clone(),
-                    LOGGER.lock().expect("Unable to lock Logger!").clone(),
                 )
             }
             Err(_) => {
-                LOGGER.lock().expect("Unable to lock Logger!").write_log(
-                    "Unable to get Database Mutex - db.load()!",
-                    LogLevel::ERROR,
-                );
+                error!("Unable to get Database Mutex - db.load()!");
                 return;
             }
         }
@@ -97,18 +97,15 @@ impl MediaServer {
         match DB_MANAGER.lock() {
             Ok(mut value) => value.boot_up(),
             Err(_) => {
-                LOGGER.lock().expect("Unable to lock Logger!").write_log(
+                error!(
                     "Unable to get Database Mutex - db.boot_up()!",
-                    LogLevel::ERROR,
+                    
                 );
                 return;
             }
         }
 
-        LOGGER.lock().expect("Unable to lock Logger!").write_log(
-            "Database ready.",
-            LogLevel::INFORMATION,
-        );
+        info!("Database ready.");
 
         // Prepare the Sockets
         let listener = match TcpListener::bind((
@@ -117,83 +114,54 @@ impl MediaServer {
         )) {
             Ok(value) => value,
             Err(_) => {
-                LOGGER.lock().expect("Unable to lock Logger!").write_log(
-                    &format!(
-                        "Unable to bind TCP Socket to {}:{}!",
-                        cfg_handler
-                            .server_configuration
-                            .server_ip,
-                        cfg_handler
-                            .server_configuration
-                            .server_port
-                    ),
-                    LogLevel::ERROR,
+                error!(
+                    "Unable to bind TCP Socket to {}:{}!",
+                    cfg_handler.server_configuration.server_ip,
+                    cfg_handler.server_configuration.server_port
                 );
                 return;
             }
         };
 
-        LOGGER.lock().expect("Unable to lock Logger!").write_log(
-            "Running SSDP Server...",
-            LogLevel::INFORMATION,
-        );
+        info!("Running SSDP Server...");
 
         // Bring up the SSDP Server
-        let ssdp_server: SSDPServer =
-            match SSDPServer::new(
-                &cfg_handler.server_configuration,
-                LOGGER.lock().expect("Unable to lock Logger!").clone(),
-            ) {
-                Ok(value) => value,
-                Err(_) => {
-                    LOGGER.lock().expect("Unable to lock Logger!").write_log(
-                        "Unable to create SSDP Server!",
-                        LogLevel::ERROR,
-                    );
-                    return;
-                }
-            };
+        let ssdp_server: SSDPServer = match SSDPServer::new(&cfg_handler.server_configuration) {
+            Ok(value) => value,
+            Err(_) => {
+                error!("Unable to create SSDP Server!");
+                return;
+            }
+        };
 
         match ssdp_server.discover() {
             Ok(_) => {}
             Err(_) => {
-                LOGGER.lock().expect("Unable to lock Logger!").write_log(
-                    "Unable to announce Server!",
-                    LogLevel::ERROR,
-                );
+                error!("Unable to announce Server!");
                 return;
             }
         }
 
-        LOGGER.lock().expect("Unable to lock Logger!").write_log(
-            "Waiting for incoming Connections...",
-            LogLevel::INFORMATION,
-        );
+        info!("Waiting for incoming Connections...");
 
         // Process Incoming Connections in new Threads
         for stream in listener.incoming() {
             let mut stream = match stream {
                 Ok(value) => value,
                 Err(_) => {
-                    LOGGER.lock().expect("Unable to lock Logger!").write_log(
-                        "Unable to establish Connection!",
-                        LogLevel::ERROR,
-                    );
+                    error!("Unable to establish Connection!");
                     break;
                 }
             };
             let tcfg_handler = cfg_handler.clone();
             let svr_cfg = cfg_handler.server_configuration.clone();
 
-            LOGGER.lock().expect("Unable to lock Logger!").write_log(
-                &format!(
-                    "New Connection from: {}",
-                    match stream.peer_addr() {
-                        Ok(value) => value,
-                        Err(_) => continue,
-                    }
-                ),
-                LogLevel::VERBOSE,
+            debug!(
+                "New Connection from: {}",
+                match stream.peer_addr() {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                }
             );
 
             // Create new Thread
@@ -202,10 +170,7 @@ impl MediaServer {
             });
         }
 
-        LOGGER.lock().expect("Unable to lock Logger!").write_log(
-            "Something went wrong. Shutting down!",
-            LogLevel::ERROR,
-        );
+        error!("Something went wrong. Shutting down!");
 
         // Clean Up
         ssdp_server.byebye();
@@ -223,22 +188,15 @@ impl MediaServer {
             let mut xml: String = String::new();
 
             if content.find("/connection/").is_some() {
-                LOGGER.lock().expect("Unable to lock Logger!").write_log(
-                    "Got Connection Manager Request...",
-                    LogLevel::VERBOSE,
-                );
+                debug!("Got Connection Manager Request...");
                 xml = con_manager.handle_request(&content);
             } else if content.find("/content/").is_some() {
-                LOGGER.lock().expect("Unable to lock Logger!").write_log(
-                    "Got Content Directory Request...",
-                    LogLevel::VERBOSE,
-                );
+                debug!("Got Content Directory Request...");
                 let mut db = match DB_MANAGER.lock() {
                     Ok(value) => value,
                     Err(_) => {
-                        LOGGER.lock().expect("Unable to lock Logger!").write_log(
+                        error!(
                             "Unable to mutex Database!",
-                            LogLevel::ERROR,
                         );
                         http::send_error(http::Status::InternalServerError500, &svr_cfg, stream);
                         return;
@@ -281,22 +239,17 @@ impl MediaServer {
                     stream,
                     &svr_cfg,
                     &item.get_mime_type(),
-                    LOGGER.lock().unwrap().clone(),
                 );
 
                 return;
             } else if content.find("/files/images/icon.png").is_some() {
-                LOGGER.lock().unwrap().write_log(
-                    "Got Icon / PNG Request...",
-                    LogLevel::VERBOSE,
-                );
+                debug!("Got Icon / PNG Request...");
                 http::send_file(
                     &content,
                     "/var/lib/slms/icon.png",
                     stream,
                     &svr_cfg,
                     "image/png",
-                    LOGGER.lock().unwrap().clone(),
                 );
 
                 return;
@@ -314,15 +267,12 @@ impl MediaServer {
                 response.push_str(&xml);
                 con_manager.send_data(&response, stream);
             } else {
-                LOGGER.lock().expect("Unable to lock Logger!").write_log(
-                    &format!(
-                        "Got Invalid Request from {}. Terminating Connection..",
-                        match stream.peer_addr() {
-                            Ok(value) => value,
-                            Err(_) => continue,
-                        }
-                    ),
-                    LogLevel::VERBOSE,
+                debug!(
+                    "Got Invalid Request from {}. Terminating Connection..",
+                    match stream.peer_addr() {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    }
                 );
 
                 http::send_error(http::Status::BadRequest400, &svr_cfg, stream);

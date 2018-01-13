@@ -1,6 +1,6 @@
 [package]
 name = "slms"
-version = "1.0.1"
+version = "1.0.2"
 authors = ["Jörn Roddelkopf"]
 
 [dependencies]
@@ -10,3 +10,5 @@ daemonize="*"
 pnet="*"
 sys-info = "*"
 uuid={version = "*", features = ["v4"]}
+log = "*"
+simplelog = "*"

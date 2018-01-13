@@ -6,6 +6,10 @@ extern crate pnet;
 extern crate sys_info;
 extern crate uuid;
 
+#[macro_use]
+extern crate log;
+extern crate simplelog;
+
 mod media;
 mod tools;
 mod database;
